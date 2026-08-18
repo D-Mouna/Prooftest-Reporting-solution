@@ -1,0 +1,8 @@
+﻿{
+  "spec_id": "SPEC-001",
+  "spec_version": "1.60",
+  "status": "current",
+  "code_version": "1.63",
+  "description": "Device list shows per-device source: OPC ProgID or SILworX project.",
+  "code_folder": "HIMA-Prooftest-Solution-Current"
+}

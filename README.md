@@ -1,20 +1,24 @@
-# Prooftest Reporting Solution — Documents
+# Prooftest Reporting Solution
 
-Private documentation repository for the **HIMA Automated Prooftest Reporting Solution**.
+Private repository for the **HIMA Automated Prooftest Reporting Solution**.
 
-**GitHub user:** `D-Mouna`  
-**Contents:** SPEC-001 version history, architecture notes, Mermaid diagrams, and code versioning docs.
+**GitHub user:** `D-Mouna`
 
 ## Layout
 
-- `Specifications/` — SPEC-001 v1.0…v1.44, History of Modifications, architecture docs
-- `Codes/` — code versioning README and Code History of Modifications
+- `Specifications/` — SPEC-001 version history, History of Modifications, architecture docs and diagrams
+- `Flow Diagram/` — pipeline flow diagrams (Markdown + SVG)
+- `Codes/` — code versioning docs and `HIMA-Prooftest-Solution-Current`
 
-## Current specification
+## Current versions
 
-See `Specifications/SPEC-001-v1.44-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md`.
+- Specification: **SPEC-001 v1.60**
+- Code: **1.63** (`Codes/HIMA-Prooftest-Solution-Current`)
+
+See `Specifications/SPEC-001-v1.60-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md`.
 
 ## Architecture overview
 
 - `Specifications/HIMA-Prooftest-Functionality-and-Architecture.md`
 - `Specifications/HIMA-Prooftest-Architecture-Mermaid.md`
+- `Specifications/architecture-diagrams/`

@@ -1,0 +1,10 @@
+fastapi==0.115.6
+uvicorn==0.34.0
+pyodbc==5.2.0; platform_system=="Windows"
+OpenOPC-DA==1.5.1
+pywin32==311
+Pyro5==5.16
+serpent==1.42
+python-multipart==0.0.20
+websockets>=12.0
+httpx>=0.27.0

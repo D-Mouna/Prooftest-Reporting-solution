@@ -3,10 +3,10 @@
 | Field | Value |
 |-------|--------|
 | **Document** | Cumulative change log for SPEC-001 |
-| **Paired spec** | [SPEC-001-v1.44-...](./SPEC-001-v1.44-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) (current) |
+| **Paired spec** | [SPEC-001-v1.60-...](./SPEC-001-v1.60-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) (current) |
 | **Location** | `Z:\Project\Report Solution\Specifications` |
 | **Filename** | `History of Modifications.md` |
-| **Updated** | 2026-08-12 |
+| **Updated** | 2026-08-18 |
 
 > **Policy:** Each SPEC version file documents **only** what changed from its immediate predecessor. This file collects **all** version-to-version modifications for audit. Do not edit superseded SPEC files — append new sections here when publishing a new SPEC version.
 
@@ -21,6 +21,169 @@
 ---
 
 ## Collected modifications (newest first)
+
+### Version 1.60 (2026-08-18)
+
+**Supersedes v1.59.** Per-device source on the Device Prooftest Result List and in the web UI.
+
+#### What changed to v1.60
+
+| Topic | Change |
+|-------|--------|
+| **Device source** | Each Device Prooftest Result List row records its **source**. Devices present on X-OPC are linked to the **OPC server ProgID**. Devices not on OPC are linked to the **SILworX project** where they were detected. |
+| **`SilworxProject`** | New column on `DeviceProoftestResultList` stores the API project name at detection. |
+| **Web device list** | Each row shows a source line: `OPC: {ProgID}` or `Project: {project name}`. |
+
+### Version 1.59 (2026-08-18)
+
+**Supersedes v1.58.** Device-list update/refresh queries SILworX API and X-OPC simultaneously, then merges.
+
+#### What changed to v1.59
+
+| Topic | Change |
+|-------|--------|
+| **Device list update** | Every automatic or manual device-list update/refresh queries **SILworX API and X-OPC simultaneously** (two worker threads), then **merges** the results once. |
+| **Merge rules** | Union of Device_TAGs. API wins `Results_Type`, `Configuration`, and `Resource`. OPC wins `OPC_Server`, `OPC_ItemPrefix`, and `PresentOnOpc`. API-only devices are kept (not on OPC); OPC-only devices are added with NULL Configuration/Resource. |
+| **`device_list_source`** | `api+opc` when both succeed; `api` when only API succeeds; `opc_fallback` when only OPC succeeds. Health card shows **API + OPC**. |
+| **G-10 / G-21 / G-22 / §3.1** | Sequential “API then OPC fallback” is replaced by parallel scan. API still attaches **only** when the user has a project open (never `open/local`). If API cannot attach, its contribution is empty while OPC still runs. |
+| **Architecture pictures** | Mermaid architecture, functionality catalogue, and Flow Diagram 01/02/04/05 show parallel API+OPC device-list update. |
+
+### Version 1.58 (2026-08-17)
+
+**Supersedes v1.57.** Four-panel order; browse restore; alarm still-active / acknowledge / reset.
+
+#### What changed to v1.58
+
+| Topic | Change |
+|-------|--------|
+| **Four-panel order** | The equal 2×2 grid is **Service health \| Device list** on the first row and **Report list \| Alarms & errors** on the second row. |
+| **Clear / Archive buttons** | **Clear device list** is the visible label; hovering the button shows **Keep OPC devices only**. Archive lists and Clear device list use the same raised action-button style as other primary controls. |
+| **Archive path** | After Archive, the saved folder path is shown in a status bar at the **bottom of the page**. |
+| **Restore** | Restore uses **Browse restore file…** to upload `devices.csv` or a zip archive (the archive dropdown is removed). |
+| **Alarms** | Each row shows **still active** or **no longer exists** (based on whether the same error has been raised again within about 60 seconds). The operator can **Acknowledge** a single alarm or **Reset alarms** for the whole list. Acknowledging does not hide a still-active condition. |
+
+### Version 1.57 (2026-08-17)
+
+**Supersedes v1.56.** Align the four principal panels; archive/clear button labels; browse restore; alarm acknowledge.
+
+#### What changed to v1.57
+
+| Topic | Change |
+|-------|--------|
+| **Four-panel layout** | Service health, Alarms & errors, Device list, and Report list are aligned in a 2×2 grid. |
+| **Health card order** | First: **Service** then **Database**. Middle: **Device list**, **SILworX session**, **Plugin session**, **Queue depth**. Last: **ALL DEVICES** and **OPC ACTIVE DEVICES**. |
+| **Device toolbar** | Search and the archive-before-clear checkbox sit bottom-right, immediately above the device list. The checkbox has no white fill; it uses the panel background. **Clear device list** is the button label; hover shows “Keep OPC devices only”. Archive and Clear are full action buttons. After Archive, the archive folder path is shown at the bottom of the page. Restore includes a **Browse** control to upload `devices.csv` or a zip archive. |
+| **Alarms** | Each alarm shows whether it is **still active** or **no longer exists**. The operator can **acknowledge** an alarm and **reset** the alarm list. |
+
+### Version 1.56 (2026-08-17)
+
+**Supersedes v1.55.** Archive/restore of device and report lists; keep-OPC-only clear.
+
+#### What changed to v1.56
+
+| Topic | Change |
+|-------|--------|
+| **Keep OPC only** | The operator can **clear** the Device Prooftest Result List so that **only devices present on X-OPC** (`.Running`) remain. Devices not on OPC are removed from the list even if they still have reports. Report files on disk are not deleted. |
+| **List archive** | Before clearing (or at any time), the operator can **archive** the current device list and report list to CSV under the station root (`List Archives\<timestamp>\`: `devices.csv`, `reports.csv`, `manifest.json`, plus a copy of report files). |
+| **Restore** | The operator can **restore** a selected archive: device rows are put back in the list, and missing report files are copied back from the archive. |
+| **Health counts** | Show **ALL DEVICES** and **OPC ACTIVE DEVICES** as a pair (side by side or stacked). Only **OPC ACTIVE DEVICES** uses the green healthy colour. |
+
+### Version 1.55 (2026-08-17)
+
+**Supersedes v1.54.** Health counts and device-list view options.
+
+#### What changed to v1.55
+
+| Topic | Change |
+|-------|--------|
+| **Health counts** | The graphic interface must show **ALL ACTIVE DEVICES** (every listed device: currently detected plus deleted devices kept because they have reports) and **ACTIVE DEVICES ON OPC** (how many of those currently exist on X-OPC with a `.Running` item). |
+| **Device list views** | Two exclusive options: (1) show **all** listed devices, including deleted ones that still have reports; (2) show **only** devices that exist on OPC and are monitored via the Running bit. |
+
+### Version 1.54 (2026-08-17)
+
+**Supersedes v1.53.** Device list add / keep / delete rules, and the web list must show them.
+
+#### What changed to v1.54
+
+| Topic | Change |
+|-------|--------|
+| **New device** | When a Prooftest device is detected (API globals or OPC scan), it **must appear** in the Device Prooftest Result List and in the web **Device list**. |
+| **Removed device, no reports** | If a previously listed device is no longer detected and it has **no** Prooftest report (no SQL snapshot and no HTML/PDF file), **delete** it from the list. |
+| **Removed device, has reports** | If it has **at least one** Prooftest report, **keep** it in the list so past reports remain reachable. |
+| **Web Device list** | The UI must show the current database list on load and on the health poll — not only after a successful Refresh, and not only while the engine is running. |
+
+### Version 1.53 (2026-08-17)
+
+**Supersedes v1.52.** Refresh the plugin `user_session_id` after the user opens a SILworX project so the API device-list path can attach.
+
+#### What changed to v1.53
+
+| Topic | Change |
+|-------|--------|
+| **Plugin session after project open** | A `user_session_id` received while SILworX has no project (or before the user opens one) is **invalid** after the project is opened. SILworX does **not** always emit `TRIGGER_SESSION_ID_CHANGED` on project open. |
+| **Required recovery** | When `lock.ini` shows a newly opened project, or when `structuretree/info` returns “session ID is not valid” / “No project opened” while a project is open, the service **must drop** the cached token, **re-register** the plugin WebSocket on that port, wait for a new `user_session_id`, and retry attach. |
+| **Still never open a project** | The tool still must **not** call `open/local`. If there is still no user-open project after the retry, use **OPC scan**. |
+
+### Version 1.52 (2026-08-17)
+
+**Supersedes v1.51.** The report tool never opens a SILworX project. API device list only when the user has a project open; otherwise OPC scan.
+
+#### What changed to v1.52
+
+| Topic | Change |
+|-------|--------|
+| **Never open a SILworX project** | The report tool **must not** call `POST /project/open/local`. Mode A is **removed**. |
+| **API device list** | Use SILworX API **only when the user has a project open** (attach to that session; never `project/close` on it). |
+| **No project open** | Update the device list by **scanning X-OPC** (`opc_fallback`). |
+| **G-10 / G-21 / §3.5** | Align: attach-only; OPC when no user-open project |
+
+
+### Version 1.51 (2026-08-14)
+
+**Supersedes v1.50.** Remove separate Case 2 product mode. One unified operating mode (`deployment_case = 1`): API device list when available, otherwise OPC scan. G-11 keeps running on OPC without switching/persisting Case 2.
+
+#### What changed to v1.51
+
+| Topic | Change |
+|-------|--------|
+| **Remove separate Case 2** | Former HMI / OPC-only Case 2 is **part of the single unified operating mode** (always `deployment_case = 1`). No product switch to Case 2. |
+| **Device list** | Prefer SILworX API when available; otherwise **OPC scan** (`opc_fallback`) — same path for engineering, HMI, API down, and after G-11 uninstall |
+| **G-11** | On SILworX uninstall: release API/plugin/`c3.exe`, **keep running**, continue OPC device list — **do not** persist Case 2 |
+| **Step 1 / config** | Auto-detect Case 2 removed; `deployment_case` always 1; `auto_detect_case` obsolete |
+| **Gate 12** | Retargeted to OPC-fallback checks within unified mode (`test_step12_case2.py`) |
+
+
+### Version 1.50 (2026-08-14)
+
+**Supersedes v1.49.** If SILworX/API is not available, update the device list by periodic X-OPC scanning (Case 1 `opc_fallback`).
+
+
+### Version 1.49 (2026-08-14)
+
+**Supersedes v1.48.** G-11: SILworX uninstall → keep Report Solution running; release API/plugin/`c3.exe`; switch device list to Case 2 OPC scanning.
+
+
+### Version 1.48 (2026-08-14)
+
+**Supersedes v1.47.** First-run creates `C:\HIMA Prooftest Reporting Tool` with Database / Reports / Results Structures; new CSV → new type + auto Proof-test report template.
+
+
+### Version 1.46 (2026-08-14)
+
+**Supersedes v1.45.** Station runtime root: `C:\HIMA Prooftest Reporting Tool` (Results Structures, Reports, Database).
+
+
+### Version 1.45 (2026-08-14)
+
+**Supersedes v1.44.** Clarification only (behaviour unchanged).
+
+#### What changed from v1.44 to v1.45
+
+| Topic | v1.44 | v1.45 (change) |
+|-------|-------|----------------|
+| **Device add** | Easy to confuse with editing Results Structure CSVs | Engineer creates **SILworX globals** typed as one of the nine Results structures |
+| **CSV files** | Runtime DDL source | Same + explicitly **fixed type catalogue**; CSV folder watch = definition maintenance only |
+
 
 ### Version 1.44 (2026-08-12)
 

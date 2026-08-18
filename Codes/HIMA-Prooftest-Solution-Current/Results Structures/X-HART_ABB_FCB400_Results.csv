@@ -1,0 +1,46 @@
+Name,Data type,Initial Value,Sequence Number
+X-HART_ABB_FCB400_Results,,,
+X-HART_ABB_FCB400_Results.Actual Value 1,REAL,,31
+X-HART_ABB_FCB400_Results.Actual Value 2,REAL,,32
+X-HART_ABB_FCB400_Results.Actual Value 3,REAL,,33
+X-HART_ABB_FCB400_Results.Actual Value 4,REAL,,34
+X-HART_ABB_FCB400_Results.Actual Value 5,REAL,,35
+X-HART_ABB_FCB400_Results.Actual Value 6,REAL,,36
+X-HART_ABB_FCB400_Results.Actual Value 7,REAL,,37
+X-HART_ABB_FCB400_Results.Alarm Selection,BYTE,,12
+X-HART_ABB_FCB400_Results.Block Error,WORD,,9
+X-HART_ABB_FCB400_Results.Block Running,WORD,,8
+X-HART_ABB_FCB400_Results.Current Step,UINT,,7
+X-HART_ABB_FCB400_Results.Damping Value,REAL,,17
+X-HART_ABB_FCB400_Results.Device ID,DWORD,,4
+X-HART_ABB_FCB400_Results.Device Revision,USINT,,1
+X-HART_ABB_FCB400_Results.Device Status,BYTE,,21
+X-HART_ABB_FCB400_Results.Device Type,WORD,,0
+X-HART_ABB_FCB400_Results.Enabled,BOOL,,43
+X-HART_ABB_FCB400_Results.End Timestamp,UDINT,,40
+X-HART_ABB_FCB400_Results.Error,BOOL,,6
+X-HART_ABB_FCB400_Results.Error Code,DWORD,,38
+X-HART_ABB_FCB400_Results.Extended Device Status,BYTE,,42
+X-HART_ABB_FCB400_Results.Hardware Revision,USINT,,3
+X-HART_ABB_FCB400_Results.Long Tag,X-HART_ASCII_32,,11
+X-HART_ABB_FCB400_Results.Lower Range Value,REAL,,15
+X-HART_ABB_FCB400_Results.Parameters After Test,X-HART_ABB_FCB400_Parameters,,19
+X-HART_ABB_FCB400_Results.Patameters Before Test,X-HART_ABB_FCB400_Parameters,,18
+X-HART_ABB_FCB400_Results.Precision,REAL,,30
+X-HART_ABB_FCB400_Results.RAW Value,DINT,,41
+X-HART_ABB_FCB400_Results.Response Code,BYTE,,20
+X-HART_ABB_FCB400_Results.Running,BOOL,,5
+X-HART_ABB_FCB400_Results.Software Revision,USINT,,2
+X-HART_ABB_FCB400_Results.Start Timestamp,UDINT,,39
+X-HART_ABB_FCB400_Results.Tag,X-HART_ASCII_32,,10
+X-HART_ABB_FCB400_Results.Test Point 1,REAL,,23
+X-HART_ABB_FCB400_Results.Test Point 2,REAL,,24
+X-HART_ABB_FCB400_Results.Test Point 3,REAL,,25
+X-HART_ABB_FCB400_Results.Test Point 4,REAL,,26
+X-HART_ABB_FCB400_Results.Test Point 5,REAL,,27
+X-HART_ABB_FCB400_Results.Test Point 6,REAL,,28
+X-HART_ABB_FCB400_Results.Test Point 7,REAL,,29
+X-HART_ABB_FCB400_Results.Transfer Function,BYTE,,13
+X-HART_ABB_FCB400_Results.Transmitter Units Code,BYTE,,16
+X-HART_ABB_FCB400_Results.Upper Range Value,REAL,,14
+X-HART_ABB_FCB400_Results.Write Protect Code,BYTE,,22

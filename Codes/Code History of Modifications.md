@@ -4,11 +4,11 @@
 |-------|--------|
 | **Document** | Cumulative change log for solution **code** archives |
 | **Active tree** | [HIMA-Prooftest-Solution-Current](./HIMA-Prooftest-Solution-Current/) |
-| **Current `VERSION.json`** | **1.43** |
-| **Paired spec** | [SPEC-001-v1.43-...](../Specifications/SPEC-001-v1.43-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) |
+| **Current `VERSION.json`** | **1.63** (SPEC 1.60) |
+| **Paired spec** | [SPEC-001-v1.60-...](../Specifications/SPEC-001-v1.60-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) |
 | **Location** | `Z:\Project\Report Solution\Codes` |
 | **Filename** | `Code History of Modifications.md` |
-| **Updated** | 2026-08-12 |
+| **Updated** | 2026-08-18 |
 
 > **Policy:** Edit **only** `HIMA-Prooftest-Solution-Current`. Before each change, archive Current → `Archive/HIMA-Prooftest-Solution-v{next}` (`archive_current.ps1`). Archived folders are immutable. This file collects **all** code version-to-version modifications for audit (same role as [Specifications/History of Modifications.md](../Specifications/History%20of%20Modifications.md) for specs).
 
@@ -27,6 +27,44 @@
 
 | Code / archive | Date | Summary |
 |----------------|------|---------|
+| **Current → 1.63** | 2026-08-18 | Per-device source: OPC ProgID or SILworX project, shown in the device list |
+| Archive v1.62 | 2026-08-18 | Snapshot before per-device OPC/project source |
+| **Current → 1.62** | 2026-08-18 | Device list: SILworX API and X-OPC simultaneously, then merge |
+| Archive v1.61 | 2026-08-18 | Snapshot before parallel API+OPC device-list update |
+| **Current → 1.61** | 2026-08-17 | Health\|devices / reports\|alarms; browse restore; alarm still-active, ack, reset |
+| Archive v1.60 | 2026-08-17 | Snapshot before four-panel order, browse restore, and alarm ack/reset |
+| **Current → 1.60** | 2026-08-17 | Equal 2×2 panel grid (health/alarms then devices/reports) |
+| Archive v1.59 | 2026-08-17 | Snapshot before UI layout / browse restore / alarm acknowledge |
+| **Current → 1.59** | 2026-08-17 | Archive/restore device+report lists; keep-OPC-only clear |
+| Archive v1.58 | 2026-08-17 | Snapshot before list archive / keep-OPC-only |
+| **Current → 1.58** | 2026-08-17 | ALL ACTIVE vs OPC counts; all/OPC Running device-list views |
+| Archive v1.57 | 2026-08-17 | Snapshot before device-list view filters |
+| **Current → 1.57** | 2026-08-17 | Device list: add new; delete only if no reports; UI shows DB list |
+| Archive v1.56 | 2026-08-17 | Snapshot before device-list retention |
+| **Current → 1.56** | 2026-08-17 | Send `HIMA_SAPI_user_session_id` with exact casing (`http.client`, not urllib) |
+| Archive v1.55 | 2026-08-17 | Snapshot before session-header casing fix |
+| **Current → 1.55** | 2026-08-17 | Refresh plugin session after SILworX project open; retry API attach |
+| Archive v1.54 | 2026-08-17 | Snapshot before plugin session refresh |
+| **Current → 1.54** | 2026-08-17 | Serialize Stop vs Start; plugin discovery off start thread |
+| Archive v1.53 | 2026-08-17 | Snapshot before Stop/Start overlap hang fix |
+| **Current → 1.53** | 2026-08-17 | Fix Stop→Start hang (`health.stopping` + start blocked on OPC refresh) |
+| Archive v1.52 | 2026-08-17 | Snapshot before Stop/Start hang fix |
+| **Current → 1.52** | 2026-08-17 | Never open SILworX project; API only if user has project open, else OPC |
+| Archive v1.51 | 2026-08-17 | Snapshot before attach-only / no Mode A |
+| **Current → 1.51** | 2026-08-14 | Remove separate Case 2; unified API→OPC mode |
+| Archive v1.50 | 2026-08-14 | Snapshot before Case 2 removal |
+| **Current → 1.50** | 2026-08-14 | API down → periodic OPC device-list scan (`opc_fallback`) |
+| Archive v1.49 | 2026-08-14 | Snapshot before OPC fallback poll |
+| **Current → 1.49** | 2026-08-14 | G-11: SILworX uninstall → keep running; release blockers; Case 2 OPC |
+| Archive v1.48 | 2026-08-14 | Snapshot before G-11 OPC switch |
+| **Current → 1.48** | 2026-08-14 | First-run 3 folders; DB in Database; new CSV → type + auto report template |
+| Archive v1.47 | 2026-08-14 | Snapshot before first-run/template clarification |
+| **Current → 1.47** | 2026-08-14 | Actually **move** legacy Reports into station root; remove old `C:\HIMA Automated Prooftest Reports` |
+| Archive v1.46 | 2026-08-14 | Snapshot before migrate-move fix |
+| **Current → 1.46** | 2026-08-14 | Station root `C:\HIMA Prooftest Reporting Tool` (Results Structures, Reports, Database) |
+| Archive v1.45 | 2026-08-14 | Snapshot before station-root relocation |
+| **Current → 1.45** | 2026-08-14 | Clarify globals vs Results Structure CSVs (docstrings); paired SPEC v1.45 |
+| Archive v1.43 | 2026-08-14 | Snapshot before v1.45 clarification |
 | **Current → 1.43** | 2026-08-12 | ProofTest_* DDL from Results CSVs; no runtime SQL template folder |
 | **Current → 1.42** | 2026-08-12 | First start: folder + SQL DB + nine ProofTest_* tables; schema sync on engine start |
 | **Current → 1.40** | 2026-08-12 | Fix Stop vs in-flight Start race; immediate stop flags |
@@ -44,6 +82,165 @@
 ---
 
 ## Collected modifications (newest first)
+
+### Version 1.63 (2026-08-18)
+
+**Paired SPEC:** v1.60. Archive before change: v1.62.
+
+Each device row stores a source: OPC server ProgID when the device is on X-OPC, otherwise the SILworX project where it was detected (`SilworxProject`). The web device list shows `OPC: …` or `Project: …` on every row.
+
+### Version 1.62 (2026-08-18)
+
+**Paired SPEC:** v1.59. Archive before change: v1.61.
+
+Device-list `refresh()` and background poll start SILworX API discovery and X-OPC browse on two threads at the same time, then merge once (`api+opc` / `api` / `opc_fallback`). Health shows **API + OPC**. API still never opens a SILworX project.
+
+### Version 1.61 (2026-08-17)
+
+**Paired SPEC:** v1.58. Archive before change: v1.60.
+
+Four-panel order is Health | Device list / Report list | Alarms. Archive and Clear are raised buttons; Clear hover text is “Keep OPC devices only”. After Archive the folder path is shown at the bottom of the page. Restore is Browse-upload of csv/zip. Alarms show still active vs no longer exists (60 s re-raise window), with Acknowledge and Reset.
+
+### Version 1.60 (2026-08-17)
+
+**Paired SPEC:** v1.57. Archive before change: v1.59.
+
+Equal 2×2 panel grid (implementation snapshot; panel order completed in 1.61).
+
+### Version 1.59 (2026-08-17)
+
+**Paired SPEC:** v1.56. Archive before change: v1.58.
+
+#### What changed
+
+| Topic | Before | After |
+|-------|--------|-------|
+| **Keep OPC only** | Non-OPC devices with reports stayed in the list until they disappeared with no reports | Operator can clear the list to **OPC devices only**. Report files stay on disk. Later API syncs do not re-add non-OPC devices until Restore |
+| **List archive** | No snapshot of the lists | Timestamped `devices.csv` + `reports.csv` (and copied report files) under `List Archives` on the station root |
+| **Restore** | Not available | Operator can restore a selected archive into the device list and copy missing report files back |
+
+### Version 1.58 (2026-08-17)
+
+**Paired SPEC:** v1.55. Archive before change: v1.57.
+
+#### What changed
+
+| Topic | Before | After |
+|-------|--------|-------|
+| **Health counts** | One **Active devices** number | **ALL ACTIVE DEVICES** (listed devices) and **ACTIVE DEVICES ON OPC** (devices with a `.Running` OPC item) |
+| **Device list filter** | One list of all `IsActive=1` rows | Two exclusive views: all devices (including deleted with reports) vs OPC/Running only |
+| **`PresentOnOpc`** | Not stored | Set from the current OPC `.Running` browse on each device-list sync |
+
+### Version 1.57 (2026-08-17)
+
+**Paired SPEC:** v1.54. Archive before change: v1.56.
+
+#### What changed
+
+| Topic | Before | After |
+|-------|--------|-------|
+| **New device** | Could be upserted then hidden (`IsActive=0`) or never painted in the UI | Always added and shown in the Device list |
+| **Removed device** | Marked `IsActive=0` (hidden) whether or not it had reports | **Deleted** if no SQL snapshot and no HTML/PDF; **kept** if at least one report exists |
+| **Web Device list** | Loaded only after Refresh; `/api/devices` returned empty while the engine was stopped; health poll did not refresh the list | Loads on page open and with the 5 s health poll; list comes from the database even if the engine is stopped |
+
+### Version 1.56 (2026-08-17)
+
+**Paired SPEC:** v1.53. Archive before change: v1.55.
+
+#### What changed
+
+| Topic | Before | After |
+|-------|--------|-------|
+| **REST session header** | `urllib.request.Request` capitalized `HIMA_SAPI_user_session_id` to `Hima_sapi_user_session_id` | `http.client.HTTPSConnection` sends the exact HIMA name (same as `sapi.py`) |
+| **SILworX attach** | Plugin token was valid, but `structuretree/info` always returned “The session ID is not valid.” | Header is recognized; API attach can succeed when a project is open |
+| **Regression test** | None for header casing | `test_sapi_session_header.py` |
+
+### Version 1.55 (2026-08-17)
+
+**Paired SPEC:** v1.53. Archive before change: v1.54.
+
+#### What changed
+
+| Topic | Before | After |
+|-------|--------|-------|
+| **Plugin token after project open** | Cached `user_session_id` from before the project was opened was reused | Token is dropped; plugin WebSocket re-registers |
+| **Attach retry** | `structuretree/info` “session ID is not valid” / “No project opened” → OPC immediately | Re-register, wait for a new token, retry API attach |
+| **lock.ini project appears** | Device list stayed on OPC until a plugin trigger arrived (often never) | Fresh plugin session requested as soon as an open project is detected |
+
+### Version 1.54 (2026-08-17)
+
+**Paired SPEC:** v1.52. Archive before change: v1.53.
+
+#### What changed
+
+| Topic | Before | After |
+|-------|--------|-------|
+| **Stop then Start** | Start could run while Stop still joined threads / closed the DB | Start waits for Stop to finish (up to 45 s) |
+| **Old poll/sync loops** | Clearing `_stop` could revive a loop that missed shutdown | Loop generation so old threads exit even if `_stop` is cleared |
+| **Plugin monitor start** | Probed all SILworX API ports on the engine-start thread (~15 s) | Discovery runs in the monitor thread |
+| **First device refresh** | `refresh()` blocked `start()` so health stayed `starting` | Refresh runs in a background thread after the engine is running |
+
+### Version 1.53 (2026-08-17)
+
+**Paired SPEC:** v1.52. Archive before change: v1.52.
+
+#### What changed
+
+| Topic | Before | After |
+|-------|--------|-------|
+| **Health after Stop** | `stopping: true` forever while engine is stopped | `stopping` only while stop is in progress |
+| **Start after Stop** | UI aborted wait immediately; Start/Stop buttons stayed disabled | Wait continues; buttons re-enable if start does not finish |
+| **Engine “running”** | Set only after first OPC/API `refresh()` (can block minutes) | Set after poll/sync loops start; refresh follows |
+| **Plugin register fail** | Retry every 1 s (flooded SILworX / OPC) | Backoff up to 30 s when registration is rejected |
+
+### Version 1.52 (2026-08-17)
+
+**Paired SPEC:** v1.52. Archive before change: v1.51.
+
+#### What changed
+
+| Topic | Before | After |
+|-------|--------|-------|
+| **Mode A / `open/local`** | Service could open the `.E3` itself when no GUI project | **Forbidden** — tool never opens a SILworX project |
+| **API device list** | API whenever SILworX answered | API **only** when the user has a project open (plugin attach) |
+| **No project open** | Mode A open then close | **OPC scan** (`opc_fallback`) |
+
+### Version 1.51 (2026-08-14)
+
+**Paired SPEC:** v1.51. Archive before change: v1.50.
+
+#### What changed
+
+| Topic | Before | After |
+|-------|--------|-------|
+| **Case 2** | Separate `deployment_case=2` HMI / OPC-only product mode | Removed — folded into unified mode (`deployment_case` always 1) |
+| **Device list** | Case 1 API path vs Case 2 OPC path | Always API when available, else OPC (`opc_fallback`) |
+| **G-11** | Switch/persist Case 2 | Release SILworX engines; keep running; OPC continue; no case switch |
+| **Gate 12** | Asserted Case 2 selection / Case 2 refresh | Asserts unified case=1 + OPC fallback behaviour |
+
+### Version 1.46 (2026-08-14)
+
+**Paired SPEC:** v1.46. Archive before change: v1.45.
+
+#### What changed
+
+| Topic | Before | After |
+|-------|--------|-------|
+| **Station root** | Reports / CSVs / SQLite in separate places | `C:\HIMA Prooftest Reporting Tool\` with `Results Structures\`, `HIMA Automated Prooftest Reports\`, `Database\` |
+| **Results CSVs** | Package-relative or ad-hoc C: path | Runtime catalogue under station root; new `*.csv` = new Results type |
+
+### Version 1.45 (2026-08-14)
+
+**Paired SPEC:** v1.45. Archive before change: v1.43.
+
+#### What changed from prior Current (1.43/1.44 docs) to 1.45
+
+| Topic | Before | After |
+|-------|--------|-------|
+| **Device identity** | Easy to confuse with editing Results Structure CSVs | Docstrings state: devices = SILworX **globals** typed as one of nine Results structures |
+| **CSV folder watch** | Looked like a normal device-add trigger | Documented as **type-catalogue maintenance only** |
+
+Behaviour unchanged — documentation/comments only (`results_csv.py`, `step07_triggers.py`, `step03_device_list.py`, `config.py`, `VERSION.json`).
 
 ### Version 1.43 (2026-08-12)
 

@@ -1,5 +1,11 @@
 .env
 *.token
 __pycache__/
+*.pyc
+*.pyo
+*.log
+*.db
 .DS_Store
 Thumbs.db
+_tok.tmp
+Codes/HIMA-Prooftest-Solution-Current/Annex codes/Tool test/data/

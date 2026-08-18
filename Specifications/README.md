@@ -51,7 +51,7 @@
 
 | Spec ID | Latest file | Version | Date | Status |
 |---------|-------------|---------|------|--------|
-| SPEC-001 | [SPEC-001-v1.44-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md](./SPEC-001-v1.44-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | 1.44 | 2026-08-12 | Draft |
+| SPEC-001 | [SPEC-001-v1.60-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md](./SPEC-001-v1.60-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | 1.60 | 2026-08-18 | Draft |
 
 ---
 
@@ -59,7 +59,7 @@
 
 | ID | Title |
 |----|--------|
-| SPEC-001 | HIMA Automated Prooftest — Background service, multi-OPC, SQL, PDF/HTML, web GUI, Case 1/2 |
+| SPEC-001 | HIMA Automated Prooftest — Background service, multi-OPC, SQL, PDF/HTML, web GUI (unified API→OPC mode) |
 
 **Change log (all versions):** [History of Modifications.md](./History%20of%20Modifications.md)
 
@@ -67,6 +67,21 @@
 
 | Version | File | Status |
 |---------|------|--------|
+| 1.59 | [SPEC-001-v1.59-...](./SPEC-001-v1.59-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.60 |
+| 1.58 | [SPEC-001-v1.58-...](./SPEC-001-v1.58-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.59 |
+| 1.57 | [SPEC-001-v1.57-...](./SPEC-001-v1.57-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.58 |
+| 1.56 | [SPEC-001-v1.56-...](./SPEC-001-v1.56-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.57 |
+| 1.55 | [SPEC-001-v1.55-...](./SPEC-001-v1.55-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.56 |
+| 1.54 | [SPEC-001-v1.54-...](./SPEC-001-v1.54-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.55 |
+| 1.53 | [SPEC-001-v1.53-...](./SPEC-001-v1.53-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.54 |
+| 1.52 | [SPEC-001-v1.52-...](./SPEC-001-v1.52-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.53 |
+| 1.51 | [SPEC-001-v1.51-...](./SPEC-001-v1.51-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.52 |
+| 1.50 | [SPEC-001-v1.50-...](./SPEC-001-v1.50-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.51 |
+| 1.49 | [SPEC-001-v1.49-...](./SPEC-001-v1.49-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.50 |
+| 1.48 | [SPEC-001-v1.48-...](./SPEC-001-v1.48-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.49 |
+| 1.46 | [SPEC-001-v1.46-...](./SPEC-001-v1.46-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.48 |
+| 1.45 | [SPEC-001-v1.45-...](./SPEC-001-v1.45-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.46 |
+| 1.44 | [SPEC-001-v1.44-...](./SPEC-001-v1.44-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.45 |
 | 1.43 | [SPEC-001-v1.43-...](./SPEC-001-v1.43-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.44 |
 | 1.42 | [SPEC-001-v1.42-...](./SPEC-001-v1.42-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.43 |
 | 1.41 | [SPEC-001-v1.41-...](./SPEC-001-v1.41-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.42 |

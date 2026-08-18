@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>HIMA Automated Prooftest</title>
+  <link rel="icon" href="img/himalogo.png"/>
+  <link rel="stylesheet" href="style.css?v=1.63.0"/>
+</head>
+<body>
+  <div id="service-banner" class="service-banner hidden" role="alert"></div>
+
+  <section class="hero-banner" aria-label="HIMA Automated Prooftest">
+    <img src="img/hero-plant.jpg" alt="" class="hero-bg"/>
+    <div class="hero-overlay">
+      <div class="hero-top">
+        <img src="img/himalogo.png" alt="HIMA SMART SAFETY" class="logo-hima-hero"/>
+        <div class="hero-titles">
+          <p class="report-label">Proof test reporting tool</p>
+          <h1>HIMA Automated Prooftest</h1>
+          <p class="header-subtitle">#Safetygoesdigital</p>
+        </div>
+      </div>
+      <div class="hero-actions">
+        <img src="img/hart.jpg" alt="HART Communication Protocol" class="logo-hart"/>
+        <img src="img/sil.png" alt="SIL" class="logo-sil"/>
+        <img src="img/eh-sil.png" alt="SIL heartbeat" class="logo-eh-sil"/>
+        <button id="btn-refresh" type="button" class="btn-primary">
+          Refresh / Reset
+        </button>
+        <button id="btn-start-service" type="button" class="btn-service btn-start">Start service</button>
+        <button id="btn-stop-service" type="button" class="btn-service btn-stop">Stop service</button>
+      </div>
+    </div>
+  </section>
+
+  <main class="app-main">
+    <div class="app-panels">
+      <article id="health" class="panel panel-health">
+        <header class="panel-head">
+          <div class="panel-title-row">
+            <img src="img/sil.png" alt="" class="panel-icon"/>
+            <h2>Service health</h2>
+          </div>
+          <span class="panel-badge" id="health-status-badge">checking…</span>
+        </header>
+        <div id="health-grid" class="health-grid">
+          <div class="health-row health-row-counts">
+            <div class="health-card">
+              <span class="label">ALL DEVICES</span>
+              <span class="value">—</span>
+            </div>
+            <div class="health-card ok">
+              <span class="label">OPC ACTIVE DEVICES</span>
+              <span class="value">—</span>
+            </div>
+          </div>
+          <div class="health-row health-row-top">
+            <div class="health-card ok">
+              <span class="label">Service</span>
+              <span class="value">Running</span>
+            </div>
+            <div class="health-card">
+              <span class="label">Database</span>
+              <span class="value">—</span>
+            </div>
+          </div>
+          <div class="health-row health-row-mid">
+            <div class="health-card">
+              <span class="label">Device list</span>
+              <span class="value">—</span>
+            </div>
+            <div class="health-card">
+              <span class="label">SILworX session</span>
+              <span class="value">—</span>
+            </div>
+            <div class="health-card">
+              <span class="label">Plugin session</span>
+              <span class="value">—</span>
+            </div>
+            <div class="health-card">
+              <span class="label">Queue depth</span>
+              <span class="value">—</span>
+            </div>
+          </div>
+        </div>
+        <div id="opc-detail" class="opc-detail">
+          <img src="img/hart.jpg" alt="" class="opc-icon logo-enlarged"/>
+          <span id="opc-detail-text">Loading OPC status…</span>
+        </div>
+      </article>
+
+      <section class="panel panel-devices">
+        <header class="panel-head">
+          <div class="panel-title-row">
+            <img src="img/hart.jpg" alt="" class="panel-icon"/>
+            <h2>Device list</h2>
+          </div>
+          <span class="panel-hint" id="device-list-hint">Device Prooftest Result List</span>
+        </header>
+        <div class="device-list-actions">
+          <div class="device-list-buttons">
+            <button id="btn-archive-lists" type="button" class="btn-primary">Archive lists</button>
+            <button
+              id="btn-keep-opc"
+              type="button"
+              class="btn-primary"
+              title="Keep OPC devices only"
+            >Clear device list</button>
+            <label class="device-view-option archive-clear-check">
+              <input type="checkbox" id="archive-before-clear" checked/>
+              Archive lists before clearing
+            </label>
+          </div>
+          <div class="device-restore-row">
+            <input type="file" id="archive-file" accept=".csv,.zip" hidden/>
+            <button id="btn-browse-restore" type="button" class="btn-primary">Browse restore file…</button>
+          </div>
+        </div>
+        <div class="device-list-search-row">
+          <label class="visually-hidden" for="device-search">Search devices</label>
+          <input
+            type="search"
+            id="device-search"
+            class="list-search-input"
+            placeholder="Search device…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </div>
+        <div class="device-list-view-row">
+          <fieldset class="device-view-options" id="device-view-options">
+            <legend class="visually-hidden">Device list view</legend>
+            <label class="device-view-option">
+              <input type="radio" name="device-list-view" id="view-all-devices" value="all" checked/>
+              All devices (including deleted with reports)
+            </label>
+            <label class="device-view-option">
+              <input type="radio" name="device-list-view" id="view-opc-devices" value="opc"/>
+              OPC devices only (Running bit)
+            </label>
+          </fieldset>
+        </div>
+        <section class="running-tests-zone" aria-label="Running prooftests">
+          <header class="running-tests-head">
+            <h3>Running tests</h3>
+            <div class="running-tests-actions">
+              <button id="btn-prooftest-history" type="button" class="btn-primary">Prooftest history</button>
+              <span class="panel-badge" id="running-tests-count">0 active</span>
+            </div>
+          </header>
+          <ul id="running-tests-list" class="running-tests-list">
+            <li class="list-placeholder">(No test in progress)</li>
+          </ul>
+        </section>
+        <div class="scroll-panel">
+          <ul id="device-list" class="scroll-list" role="listbox" aria-label="Active devices">
+            <li class="list-placeholder">(No device available)</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="panel panel-reports">
+        <header class="panel-head">
+          <div class="panel-title-row">
+            <img src="img/himalogo.png" alt="" class="panel-icon panel-icon-hima"/>
+            <h2>Report list</h2>
+          </div>
+          <span class="panel-hint">PDF / HTML for selected device · newest first</span>
+        </header>
+        <div class="list-search-row">
+          <label class="visually-hidden" for="report-search">Search reports</label>
+          <input
+            type="search"
+            id="report-search"
+            class="list-search-input"
+            placeholder="Search report…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </div>
+        <div class="scroll-panel">
+          <ul id="report-list" class="scroll-list" role="listbox" aria-label="Reports for selected device">
+            <li class="list-placeholder">(No report available)</li>
+          </ul>
+        </div>
+        <div class="report-actions">
+          <button id="btn-open" type="button" class="btn-primary" disabled>
+            Open selected report
+          </button>
+          <p id="selected-device-label" class="selected-label">(No report selected)</p>
+        </div>
+      </section>
+
+      <article id="alarms" class="panel panel-alarms">
+        <header class="panel-head">
+          <div class="panel-title-row">
+            <img src="img/eh-sil.png" alt="" class="panel-icon"/>
+            <h2>Alarms &amp; errors</h2>
+          </div>
+          <div class="alarm-head-actions">
+            <span class="panel-badge panel-badge-warn" id="alarm-count-badge">0 active</span>
+            <button id="btn-reset-alarms" type="button" class="btn-alarm-reset">Reset alarms</button>
+          </div>
+        </header>
+        <div id="alarm-list" class="alarm-list">
+          <p class="alarm-empty">Loading alarms…</p>
+        </div>
+      </article>
+    </div>
+
+    <section class="vendor-strip panel" aria-label="Supported HART device manufacturers">
+      <header class="panel-head">
+        <div class="panel-title-row">
+          <img src="img/hart.jpg" alt="" class="panel-icon logo-enlarged"/>
+          <h2>Supported manufacturers</h2>
+        </div>
+      </header>
+      <div class="vendor-grid">
+        <figure><img src="img/abb.png" alt="ABB"/><figcaption>ABB</figcaption></figure>
+        <figure class="vendor-logo-lg"><img src="img/eh.png" alt="Endress+Hauser"/><figcaption>Endress+Hauser</figcaption></figure>
+        <figure class="vendor-logo-lg"><img src="img/emerson.png" alt="Emerson"/><figcaption>Emerson</figcaption></figure>
+        <figure><img src="img/samson.png" alt="SAMSON"/><figcaption>SAMSON</figcaption></figure>
+        <figure><img src="img/wika.png" alt="WIKA"/><figcaption>WIKA</figcaption></figure>
+        <figure class="vendor-logo-lg"><img src="img/krohne.png" alt="KROHNE"/><figcaption>KROHNE</figcaption></figure>
+        <figure><img src="img/draeger.png" alt="Dräger" onerror="this.closest('figure').style.display='none'"/><figcaption>Dräger</figcaption></figure>
+      </div>
+    </section>
+
+    <p id="archive-status" class="archive-status hidden" role="status"></p>
+  </main>
+
+  <footer class="app-footer">
+    <img src="img/himalogo.png" alt="HIMA" class="footer-logo"/>
+    <p class="footer-meta">HIMA Paul Hildebrandt GmbH · SILworX HART Prooftest reporting solution</p>
+  </footer>
+
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-content">
+      <header class="modal-header">
+        <img src="img/himalogo.png" alt="" class="modal-logo"/>
+        <div>
+          <p class="modal-step" id="modal-step"></p>
+          <h3 id="modal-title"></h3>
+        </div>
+      </header>
+      <section class="modal-section">
+        <h4>Reason</h4>
+        <p id="modal-message"></p>
+      </section>
+      <section class="modal-section modal-solutions">
+        <h4>Possible solutions</h4>
+        <p id="modal-solution"></p>
+      </section>
+      <footer class="modal-footer">
+        <button id="modal-close" type="button" class="btn-secondary">Close</button>
+      </footer>
+    </div>
+  </div>
+
+  <div id="history-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="history-modal-title">
+    <div class="modal-content history-modal-content">
+      <header class="modal-header">
+        <img src="img/himalogo.png" alt="" class="modal-logo"/>
+        <div>
+          <p class="modal-step">Prooftest</p>
+          <h3 id="history-modal-title">Prooftest history</h3>
+        </div>
+      </header>
+      <section class="modal-section history-modal-body">
+        <ul id="history-modal-list" class="prooftest-history-list">
+          <li class="list-placeholder">(No prooftest history)</li>
+        </ul>
+      </section>
+      <footer class="modal-footer">
+        <button id="history-modal-close" type="button" class="btn-secondary">Close</button>
+      </footer>
+    </div>
+  </div>
+
+  <script src="ui-paths.js?v=1.61"></script>
+  <script src="app.js?v=1.63.0"></script>
+</body>
+</html>
