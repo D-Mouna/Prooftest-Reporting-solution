@@ -1,8 +1,8 @@
 ﻿{
   "spec_id": "SPEC-001",
-  "spec_version": "1.60",
+  "spec_version": "1.62",
   "status": "current",
-  "code_version": "1.63",
-  "description": "Device list shows per-device source: OPC ProgID or SILworX project.",
+  "code_version": "1.65",
+  "description": "Presentation controllers split + LiveTestService production integration; report folders scoped by Project/DeviceId to prevent report mixing; controllers/test compatibility fixes.",
   "code_folder": "HIMA-Prooftest-Solution-Current"
 }

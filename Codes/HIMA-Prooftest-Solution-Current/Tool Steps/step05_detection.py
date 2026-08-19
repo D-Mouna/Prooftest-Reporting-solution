@@ -1,30 +1,23 @@
 from __future__ import annotations
 
-import logging
 import queue
 import threading
-from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
+from layers.adapters import (
+    AlarmManagerAdapter,
+    AnnexReportAdapter,
+    DatabaseStoreAdapter,
+    OpcManagerAdapter,
+)
+from layers.application.live_test import LiveTestService
+from layers.domain.device import Device, device_from_row
 from prooftest.config import AppConfig
 from prooftest.annex_database import Database
+from prooftest.results_csv import ResultsStructure, member_to_column
 from prooftest.step04_opc import OpcManager
-from prooftest.step06_reports import write_reports
-from prooftest.results_csv import ResultsStructure, member_to_column, structure_to_sql_table
 
-log = logging.getLogger(__name__)
-
-
-@dataclass
-class CompletionEvent:
-    device_tag: str
-    results_type: str
-    opc_server: str
-    opc_prefix: str
-    snapshot: Dict[str, Any]
-    sequence: int
-    quality_notes: List[str]
+log = __import__("logging").getLogger(__name__)
 
 
 class ProoftestMonitor:
@@ -39,10 +32,19 @@ class ProoftestMonitor:
         self.db = db
         self.opc = opc
         self.structures = structures
-        self._queue: queue.Queue[CompletionEvent] = queue.Queue()
+        self._queue: queue.Queue = queue.Queue()
         self._report_lock = threading.Lock()
-        self._sequence_counters: Dict[str, int] = {}
         self._stop = threading.Event()
+        self._store = DatabaseStoreAdapter(db, structures)
+        self._reports = AnnexReportAdapter(config, db, self._store)
+        self._live = LiveTestService(
+            OpcManagerAdapter(opc),
+            self._store,
+            self._reports,
+            AlarmManagerAdapter(db.alarms),
+            snapshot_fn=self._collect_snapshot,
+            defer_complete=True,
+        )
         self._worker = threading.Thread(target=self._report_worker, daemon=True, name="report-worker")
         self._worker.start()
 
@@ -56,102 +58,53 @@ class ProoftestMonitor:
 
     def poll_devices(self) -> None:
         devices = self.db.list_active_devices()
-        for device in devices:
-            if device.get("test_in_progress") and not device.get("present_on_opc"):
-                self._interrupt_test(device, "device no longer on OPC")
-                continue
-            if not device.get("present_on_opc"):
-                continue
+        for row in devices:
             try:
-                self._poll_one(device)
+                self._poll_one(row)
             except Exception as exc:
                 self.db.alarms.raise_alarm(
-                    "P3",
-                    f"OPC read failed for {device['device_tag']}",
-                    device_tag=device["device_tag"],
+                    "S4",
+                    f"OPC read failed for {row.get('device_tag')}",
+                    device_tag=row.get("device_tag"),
                     cause=str(exc),
                     show_popup=False,
+                    action="PollOnce",
                 )
 
-    def _poll_one(self, device: Dict[str, Any]) -> None:
-        structure = self.structures.get(device["results_type"])
+    def _poll_one(self, device: Union[Dict[str, Any], Device]) -> None:
+        if isinstance(device, dict):
+            device = device_from_row(device)
+        self._live.seed_device(device)
+        self._live._poll_one(device)
+        while self._live.queue:
+            self._queue.put(self._live.queue.pop(0))
+
+    def _collect_snapshot(self, device: Device) -> tuple[Dict[str, Any], List[str]]:
+        structure = self.structures.get(device.results_type)
         if not structure:
-            return
+            return {}, ["No Results structure"]
         binding = self.opc.resolve_device_binding(
-            device["device_tag"],
-            device.get("opc_item_prefix"),
+            device.device_tag,
+            device.opc_item_prefix,
         )
         if not binding or not binding.running_item_id:
-            return
+            return {}, ["No OPC binding"]
         server = binding.server
         prefix = binding.item_prefix
-        tags = binding.tags
-        running_id = binding.running_item_id
-        if device.get("opc_server") != server or device.get("opc_item_prefix") != prefix:
+        if device.opc_server != server or device.opc_item_prefix != prefix:
+            device.opc_server = server
+            device.opc_item_prefix = prefix
             self.db.upsert_device(
-                device["device_tag"],
-                device["results_type"],
+                device.device_tag,
+                device.results_type,
                 opc_server=server,
                 opc_prefix=prefix,
+                device_id=device.device_id.key(),
+                silworx_project=device.project or None,
+                configuration=device.configuration or None,
+                resource=device.resource or None,
             )
-        read_map = self.opc.read_values(server, [running_id])
-        value, quality = read_map.get(running_id, (None, "Bad"))
-        running = bool(value) if value is not None else False
-        prev = device.get("last_running")
-        if prev is None:
-            prev = False
-
-        if (prev or device.get("test_in_progress")) and value is None and str(quality).lower() != "good":
-            self._interrupt_test(device, f"OPC Running quality {quality}")
-            return
-
-        if prev is False and running:
-            self.db.upsert_device(
-                device["device_tag"],
-                device["results_type"],
-                last_running=True,
-                test_in_progress=True,
-            )
-            try:
-                self.db.start_test_history(device["device_tag"], device["results_type"])
-            except Exception as exc:
-                log.warning("Could not record test start history for %s: %s", device["device_tag"], exc)
-            log.info("Prooftest started: %s", device["device_tag"])
-
-        if prev is True and not running:
-            snapshot, notes = self._read_snapshot(server, tags, prefix, structure)
-            if snapshot.get("_running_still_true"):
-                return
-            seq = self._next_sequence(device["device_tag"])
-            self._queue.put(
-                CompletionEvent(
-                    device_tag=device["device_tag"],
-                    results_type=device["results_type"],
-                    opc_server=server,
-                    opc_prefix=prefix,
-                    snapshot=snapshot,
-                    sequence=seq,
-                    quality_notes=notes,
-                )
-            )
-            result = self._result_from_snapshot(snapshot)
-            try:
-                self.db.finish_open_test_history(device["device_tag"], "completed", result)
-            except Exception as exc:
-                log.warning("Could not record test completion history for %s: %s", device["device_tag"], exc)
-            self.db.upsert_device(
-                device["device_tag"],
-                device["results_type"],
-                last_running=False,
-                test_in_progress=False,
-            )
-            log.info("Prooftest completed: %s (queued seq %s)", device["device_tag"], seq)
-        else:
-            self.db.upsert_device(
-                device["device_tag"],
-                device["results_type"],
-                last_running=running,
-            )
+        return self._read_snapshot(server, binding.tags, prefix, structure)
 
     def _read_snapshot(
         self,
@@ -181,38 +134,6 @@ class ProoftestMonitor:
                 snapshot["_running_still_true"] = True
         return snapshot, notes
 
-    def _next_sequence(self, device_tag: str) -> int:
-        self._sequence_counters[device_tag] = self._sequence_counters.get(device_tag, 0) + 1
-        return self._sequence_counters[device_tag]
-
-    def _interrupt_test(self, device: Dict[str, Any], reason: str) -> None:
-        tag = device.get("device_tag") or ""
-        if not tag:
-            return
-        try:
-            self.db.finish_open_test_history(tag, "interrupted", "unknown")
-        except Exception as exc:
-            log.warning("Could not record interrupted test for %s: %s", tag, exc)
-        try:
-            self.db.upsert_device(
-                tag,
-                device.get("results_type") or "",
-                last_running=False,
-                test_in_progress=False,
-            )
-        except Exception as exc:
-            log.warning("Could not clear in-progress flag for %s: %s", tag, exc)
-        log.info("Prooftest interrupted: %s (%s)", tag, reason)
-
-    @staticmethod
-    def _result_from_snapshot(snapshot: Dict[str, Any]) -> str:
-        from prooftest.annex_pdf_generation import result_line_text
-
-        text = result_line_text(snapshot or {})
-        if "Unsuccessful" in text or text == "Not done":
-            return "unsuccessful"
-        return "successful"
-
     def _report_worker(self) -> None:
         while not self._stop.is_set():
             try:
@@ -222,37 +143,23 @@ class ProoftestMonitor:
             if event is None:
                 break
             try:
-                self._process_completion(event)
+                with self._report_lock:
+                    self._live.run_complete(event)
             except Exception as exc:
+                tag = ""
+                if isinstance(event, dict):
+                    device = event.get("device")
+                    tag = getattr(device, "device_tag", "") or ""
                 self.db.alarms.raise_alarm(
-                    "P5",
-                    f"Report generation failed for {event.device_tag}",
-                    device_tag=event.device_tag,
+                    "S6",
+                    f"Report generation failed for {tag}",
+                    device_tag=tag,
                     cause=str(exc),
+                    action="CompleteTest",
                 )
             finally:
                 self._queue.task_done()
 
-    def _process_completion(self, event: CompletionEvent) -> None:
-        table = structure_to_sql_table(event.results_type)
-        with self._report_lock:
-            record_id = self.db.insert_snapshot(
-                table,
-                event.device_tag,
-                event.snapshot,
-                opc_server=event.opc_server,
-                sequence=event.sequence,
-            )
-            paths = write_reports(
-                self.config,
-                event.device_tag,
-                event.results_type,
-                event.snapshot,
-                quality_notes=event.quality_notes,
-            )
-            if paths:
-                self.db.update_report_path(table, record_id, paths[0])
-
     @property
     def queue_depth(self) -> int:
-        return self._queue.qsize()
+        return self._queue.qsize() + self._live.queue_depth

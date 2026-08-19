@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>HIMA Automated Prooftest</title>
   <link rel="icon" href="img/himalogo.png"/>
-  <link rel="stylesheet" href="style.css?v=1.63.0"/>
+  <link rel="stylesheet" href="style.css?v=1.65.0"/>
 </head>
 <body>
   <div id="service-banner" class="service-banner hidden" role="alert"></div>
@@ -28,6 +28,8 @@
         <button id="btn-refresh" type="button" class="btn-primary">
           Refresh / Reset
         </button>
+        <button id="btn-connect-silworx" type="button" class="btn-service btn-start">Connect to SILworX</button>
+        <button id="btn-disconnect-silworx" type="button" class="btn-service btn-stop">Disconnect SILworX</button>
         <button id="btn-start-service" type="button" class="btn-service btn-start">Start service</button>
         <button id="btn-stop-service" type="button" class="btn-service btn-stop">Stop service</button>
       </div>
@@ -153,10 +155,22 @@
             <li class="list-placeholder">(No test in progress)</li>
           </ul>
         </section>
+        <div id="last-error-banner" class="last-error-banner hidden" role="status"></div>
         <div class="scroll-panel">
-          <ul id="device-list" class="scroll-list" role="listbox" aria-label="Active devices">
-            <li class="list-placeholder">(No device available)</li>
-          </ul>
+          <table class="device-table" aria-label="Active devices">
+            <thead>
+              <tr>
+                <th>Device</th>
+                <th>Type</th>
+                <th>OPC</th>
+                <th>Project</th>
+                <th>OPC server</th>
+              </tr>
+            </thead>
+            <tbody id="device-list">
+              <tr class="list-placeholder"><td colspan="5">(No device available)</td></tr>
+            </tbody>
+          </table>
         </div>
       </section>
 
@@ -279,6 +293,6 @@
   </div>
 
   <script src="ui-paths.js?v=1.61"></script>
-  <script src="app.js?v=1.63.0"></script>
+  <script src="app.js?v=1.65.0"></script>
 </body>
 </html>

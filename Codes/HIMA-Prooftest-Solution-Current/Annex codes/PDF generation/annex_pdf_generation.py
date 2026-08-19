@@ -412,13 +412,17 @@ def ensure_report_templates_for_structures(
     return written
 
 
-def device_report_dir(output_root: Path, device_tag: str, results_type: str) -> Path:
-    """``<root>/<Results_Type>/<Device_TAG>/`` per SPEC Step 5–6."""
-    return (
-        output_root
-        / results_type_folder_name(results_type)
-        / sanitize_device_tag_for_path(device_tag)
-    )
+def device_report_dir(
+    output_root: Path,
+    device_tag: str,
+    results_type: str,
+    project: str = "",
+) -> Path:
+    """``<root>/<Results_Type>/<Project>/<Device_TAG>/`` when project is set; else tag-only (legacy)."""
+    folder = output_root / results_type_folder_name(results_type)
+    if project:
+        folder = folder / sanitize_device_tag_for_path(project)
+    return folder / sanitize_device_tag_for_path(device_tag)
 
 
 def result_line_text(snapshot: Dict[str, Any]) -> str:
@@ -639,9 +643,10 @@ def write_reports(
     snapshot: Dict[str, Any],
     *,
     quality_notes: Optional[List[str]] = None,
+    project: str = "",
 ) -> List[str]:
-    output_dir = device_report_dir(config.report_output, device_tag, results_type)
-    mirror_dir = device_report_dir(config.report_mirror, device_tag, results_type)
+    output_dir = device_report_dir(config.report_output, device_tag, results_type, project=project)
+    mirror_dir = device_report_dir(config.report_mirror, device_tag, results_type, project=project)
     output_dir.mkdir(parents=True, exist_ok=True)
     try:
         mirror_same = mirror_dir.resolve() == output_dir.resolve()
@@ -707,18 +712,36 @@ def list_reports_for_device(
     device_tag: str,
     *,
     results_type: Optional[str] = None,
+    project: Optional[str] = None,
+    device_id: Optional[str] = None,
 ) -> List[Dict[str, str]]:
+    if device_id and not project:
+        try:
+            from layers.domain.device import DeviceId
+
+            project = DeviceId.from_key(device_id).project or None
+        except Exception:
+            project = project
     safe = sanitize_device_tag_for_path(device_tag)
+    safe_project = sanitize_device_tag_for_path(project) if project else ""
     search_dirs: List[Path] = []
+
+    def _dirs_for_type(type_dir: Path) -> None:
+        legacy = type_dir / safe
+        if safe_project:
+            scoped = type_dir / safe_project / safe
+            if scoped.is_dir():
+                search_dirs.append(scoped)
+                return
+        if legacy.is_dir():
+            search_dirs.append(legacy)
+
     if results_type:
-        search_dirs.append(device_report_dir(output_dir, device_tag, results_type))
+        _dirs_for_type(output_dir / results_type_folder_name(results_type))
     elif output_dir.is_dir():
         for type_dir in output_dir.iterdir():
-            if not type_dir.is_dir():
-                continue
-            candidate = type_dir / safe
-            if candidate.is_dir():
-                search_dirs.append(candidate)
+            if type_dir.is_dir():
+                _dirs_for_type(type_dir)
     else:
         return []
 

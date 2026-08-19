@@ -1,6 +1,6 @@
 # HIMA Automated Prooftest Solution — **Current**
 
-**Active working tree** for all code changes. Paired with **SPEC-001 v1.56** (see `VERSION.json`).
+**Active working tree** for all code changes. Paired with **SPEC-001 v1.61** (see `VERSION.json`).
 
 Before any modification, archive this folder — run `..\archive_current.ps1`.
 

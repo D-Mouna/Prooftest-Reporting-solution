@@ -549,8 +549,39 @@ class Case1SyncTriggers:
         self._attached_project_names_by_api.clear()
         self._last_attached_api_port = None
         self._available_instances = []
+        self._silworx_api_suspended = True
         log.info("SILworX API connection released (all instances down)")
         return had_session
+
+    def detach_tool_clients(self) -> None:
+        """Drop this tool's API client and plugin monitor. Never project/close GUI, never kill c3.exe."""
+        if self._plugin_monitor is not None:
+            try:
+                self._plugin_monitor.stop()
+            except Exception as exc:
+                log.warning("Plugin monitor stop failed during SILworX disconnect: %s", exc)
+            self._plugin_monitor = None
+        for client in list(self._api_clients.values()):
+            try:
+                client.clear_session_id()
+            except Exception:
+                pass
+        self._api_clients.clear()
+        self._attached_session_ids_by_api.clear()
+        self._attached_project_names_by_api.clear()
+        self._active_api_port = None
+        self._silworx_api_suspended = True
+        log.info("SILworX tool session detached (SILworX software left running)")
+
+    def resume_tool_clients(self) -> None:
+        """Re-enable API/plugin attach. Does not open a SILworX project."""
+        self.prepare_for_engine_start()
+        self.start_monitor()
+
+    def is_tool_attached(self) -> bool:
+        if self.is_api_suspended():
+            return False
+        return bool(self._attached_session_ids_by_api) or bool(self._attached_project_names_by_api)
 
     def _marker(self, key: str) -> Path:
         return self.markers_dir / f"{key}.marker"

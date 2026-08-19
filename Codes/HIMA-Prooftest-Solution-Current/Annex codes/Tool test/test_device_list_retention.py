@@ -55,16 +55,17 @@ def main() -> int:
         print("FAIL new detected device not in list")
         return 1
     if DROP_TAG in tags:
-        print("FAIL device without reports was not deleted")
+        print("FAIL device without reports was not deactivated")
         return 1
     if KEEP_TAG not in tags:
         print("FAIL device with a SQL snapshot was removed from the list")
         return 1
 
     with db.cursor() as cur:
-        cur.execute("SELECT COUNT(*) FROM DeviceProoftestResultList WHERE Device_TAG=?", (DROP_TAG,))
-        if int(cur.fetchone()[0]) != 0:
-            print("FAIL dropped device row still exists")
+        cur.execute("SELECT IsActive FROM DeviceProoftestResultList WHERE Device_TAG=?", (DROP_TAG,))
+        row = cur.fetchone()
+        if not row or int(row[0] or 0) != 0:
+            print("FAIL dropped device row should remain inactive, not deleted")
             return 1
 
     db.set_present_on_opc({NEW_TAG})

@@ -4,12 +4,12 @@
 |-------|--------|
 | **Document** | Architecture diagrams (Mermaid) |
 | **Runtime** | `HIMA-Prooftest-Solution-Current` |
-| **Paired SPEC** | SPEC-001 v1.59 |
+| **Paired SPEC** | SPEC-001 v1.62 |
 | **Related** | [HIMA-Prooftest-Functionality-and-Architecture.md](./HIMA-Prooftest-Functionality-and-Architecture.md) |
 | **Pictures** | [architecture-diagrams/](./architecture-diagrams/) |
-| **Updated** | 2026-08-18 |
+| **Updated** | 2026-08-19 |
 
-> Render in any Mermaid-capable viewer. PNGs/SVGs under `architecture-diagrams\` match these diagrams (`01`–`11`).
+> Render in any Mermaid-capable viewer. PNGs/SVGs under `architecture-diagrams\` match these diagrams (`01`–`12`).
 
 ---
 
@@ -184,7 +184,7 @@ flowchart LR
   RUN -->|rising| START[Test started]
   RUN -->|falling| SNAP[Snapshot Results]
   SNAP --> TBL[ProofTest_* row]
-  TBL --> RPT["Reports\\Type\\TAG\\ HTML/PDF"]
+  TBL --> RPT["Reports\\Type\\Project\\TAG\\ HTML/PDF"]
   RPT --> PATH[ReportPath]
 ```
 
@@ -243,9 +243,12 @@ flowchart TB
   PKG --> SEED[Results Structures seed CSVs]
 
   TS --> S03[step03 device list API+OPC together]
+  TS --> S05[step05 LiveTestService poll + report worker]
   TS --> S07[step07 triggers G-11/G-19]
+  AX --> LAY[layers · presentation · application · domain · adapters]
   AX --> PDF[PDF generation · auto templates]
   AX --> STP[Stop service · c3 cleanup]
+  GI -->|thin wrapper| LAY
   SEED -->|first start copy| STATION["C:\\HIMA Prooftest Reporting Tool\\Results Structures"]
 ```
 
@@ -270,6 +273,67 @@ flowchart TB
   ENG <-->|when available| SIL
   ENG --> DISK
   SIL -.->|G-11 uninstall| ENG
+```
+
+---
+
+## 12. Layered architecture (Presentation / Application / Domain + DeviceId)
+
+```mermaid
+flowchart TB
+  subgraph PRES["Presentation — Graphic Interface + layers/presentation"]
+    APP8080[web_app.py · FastAPI :8080]
+    CTRL[controllers.py<br/>Status · Engine · Device · Report · Catalog · Alarm]
+    APP8080 --> CTRL
+  end
+
+  subgraph APP["Application — layers/application"]
+    LTS[LiveTestService<br/>poll_once · defer_complete · run_complete]
+    ENG[engine · catalog · query · silworx_connection]
+  end
+
+  subgraph DOM["Domain — layers/domain"]
+    DID[Device · DeviceId<br/>tag + project key]
+    RUN[RunningEdgeDetector · prime/edges]
+    MERGE[merger · result_types]
+  end
+
+  subgraph PORTS["Ports — layers/ports.py"]
+    OPCP[OpcPort]
+    STORE[StorePort]
+    RPT[ReportPort]
+    ALM[AlarmPort]
+  end
+
+  subgraph ADAPT["Adapters — layers/adapters.py"]
+    OMCA[OpcManagerAdapter]
+    DBA[DatabaseStoreAdapter]
+    RPA[AnnexReportAdapter]
+    AMA[AlarmManagerAdapter]
+  end
+
+  subgraph RUNTIME["Production runtime — Tool Steps"]
+    S05[step05 ProoftestMonitor]
+    SVC[ProoftestService · report-worker]
+    OPCM[OpcManager]
+    DB[(ProofTest_* · DeviceId upserts)]
+    PDF[annex_pdf_generation<br/>Reports\\Type\\Project\\TAG]
+  end
+
+  CTRL --> ENG
+  CTRL -->|/api/reports?project=&device_id=| PDF
+  SVC --> S05
+  S05 --> LTS
+  LTS --> DID
+  LTS --> RUN
+  LTS --> OPCP & STORE & RPT & ALM
+  ENG --> DID & MERGE
+  OPCP --> OMCA --> OPCM
+  STORE --> DBA --> DB
+  RPT --> RPA --> PDF
+  ALM --> AMA
+  LTS -->|falling edge| SVC
+  SVC -->|run_complete off poll thread| LTS
 ```
 
 ---

@@ -31,6 +31,7 @@ DEVICE_CSV_FIELDS = [
     "TestInProgress",
     "PresentOnOpc",
     "SilworxProject",
+    "DeviceId",
 ]
 
 REPORT_CSV_FIELDS = [
@@ -138,6 +139,7 @@ def create_list_archive(db: Any, config: AppConfig) -> Dict[str, Any]:
                     "TestInProgress": _csv_cell(device.get("test_in_progress")),
                     "PresentOnOpc": _csv_cell(device.get("present_on_opc")),
                     "SilworxProject": _csv_cell(device.get("silworx_project")),
+                    "DeviceId": _csv_cell(device.get("device_id")),
                 }
             )
 
@@ -262,6 +264,7 @@ def restore_from_folder(
                 configuration=(row.get("Configuration") or "").strip() or None,
                 resource=(row.get("Resource") or "").strip() or None,
                 silworx_project=(row.get("SilworxProject") or "").strip() or None,
+                device_id=(row.get("DeviceId") or "").strip() or None,
             )
             present = (row.get("PresentOnOpc") or "").strip() in ("1", "true", "True")
             db.set_device_present_on_opc(tag, present)

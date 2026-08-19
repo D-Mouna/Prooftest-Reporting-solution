@@ -1,6 +1,6 @@
 # Architecture diagram pictures
 
-Rendered from [HIMA-Prooftest-Architecture-Mermaid.md](../HIMA-Prooftest-Architecture-Mermaid.md) (SPEC-001 v1.59).
+Rendered from [HIMA-Prooftest-Architecture-Mermaid.md](../HIMA-Prooftest-Architecture-Mermaid.md) (SPEC-001 v1.62).
 
 | # | PNG | SVG |
 |---|-----|-----|
@@ -15,3 +15,4 @@ Rendered from [HIMA-Prooftest-Architecture-Mermaid.md](../HIMA-Prooftest-Archite
 | 09 Station folders | [09-station-folders.png](./09-station-folders.png) | [09-station-folders.svg](./09-station-folders.svg) |
 | 10 Code layout | [10-code-layout.png](./10-code-layout.png) | [10-code-layout.svg](./10-code-layout.svg) |
 | 11 Component deployment | [11-component-deployment.png](./11-component-deployment.png) | [11-component-deployment.svg](./11-component-deployment.svg) |
+| 12 Layered architecture (DeviceId) | [12-layered-architecture.png](./12-layered-architecture.png) | [12-layered-architecture.svg](./12-layered-architecture.svg) |

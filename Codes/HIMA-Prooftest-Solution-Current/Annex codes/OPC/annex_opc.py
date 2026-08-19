@@ -294,6 +294,20 @@ class OpcManager:
                     best = max(best, len(tags))
             return best
 
+    def find_running_path(self, server: str, device_tag: str) -> Optional[str]:
+        """Construct OTS ProofTest.{TAG}.Running then OPC ProofTest.{TAG}.Running from cache."""
+        tags: List[str] = []
+        with self._lock:
+            for key, cached in self._tags_cache.items():
+                if key.split("|", 1)[0] == server:
+                    tags = list(cached)
+                    break
+        for branch in ("OTS ProofTest", "OPC ProofTest"):
+            item = f"{branch}.{device_tag}.Running"
+            if item in tags:
+                return item
+        return None
+
     def health_snapshot(self) -> List[OpcServerInfo]:
         """Non-blocking OPC summary from the last discovery/browse cache (Gate 13)."""
         with self._lock:

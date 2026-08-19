@@ -17,6 +17,7 @@ $scripts = @(
     "test_plugin_session_refresh.py",
     "test_device_list_retention.py",
     "test_list_archive.py",
+    "test_layers.py",
     "test_alarm_status.py",
     "test_step11_web_ui.py",
     "test_step6_devices.py",

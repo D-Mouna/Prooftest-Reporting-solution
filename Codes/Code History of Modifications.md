@@ -4,11 +4,11 @@
 |-------|--------|
 | **Document** | Cumulative change log for solution **code** archives |
 | **Active tree** | [HIMA-Prooftest-Solution-Current](./HIMA-Prooftest-Solution-Current/) |
-| **Current `VERSION.json`** | **1.63** (SPEC 1.60) |
-| **Paired spec** | [SPEC-001-v1.60-...](../Specifications/SPEC-001-v1.60-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) |
+| **Current `VERSION.json`** | **1.65** (SPEC 1.62) |
+| **Paired spec** | [SPEC-001-v1.62-...](../Specifications/SPEC-001-v1.62-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) |
 | **Location** | `Z:\Project\Report Solution\Codes` |
 | **Filename** | `Code History of Modifications.md` |
-| **Updated** | 2026-08-18 |
+| **Updated** | 2026-08-19 |
 
 > **Policy:** Edit **only** `HIMA-Prooftest-Solution-Current`. Before each change, archive Current → `Archive/HIMA-Prooftest-Solution-v{next}` (`archive_current.ps1`). Archived folders are immutable. This file collects **all** code version-to-version modifications for audit (same role as [Specifications/History of Modifications.md](../Specifications/History%20of%20Modifications.md) for specs).
 
@@ -27,6 +27,9 @@
 
 | Code / archive | Date | Summary |
 |----------------|------|---------|
+| **Current → 1.65** | 2026-08-19 | Report folders scoped by Project/DeviceId; Presentation controllers + LiveTestService poll integration |
+| **Current → 1.64** | 2026-08-18 | Layers; composite DeviceId; GUI Project/OPC columns; SILworX attach/detach without killing SILworX |
+| Archive v1.63 | 2026-08-18 | Snapshot before layered architecture |
 | **Current → 1.63** | 2026-08-18 | Per-device source: OPC ProgID or SILworX project, shown in the device list |
 | Archive v1.62 | 2026-08-18 | Snapshot before per-device OPC/project source |
 | **Current → 1.62** | 2026-08-18 | Device list: SILworX API and X-OPC simultaneously, then merge |
@@ -82,6 +85,18 @@
 ---
 
 ## Collected modifications (newest first)
+
+### Version 1.65 (2026-08-19)
+
+**Paired SPEC:** v1.62. Archive before change: v1.64.
+
+Presentation controllers use DB/annex adapters for test compatibility; production polling/reporting routes realtime detection through `LiveTestService` with DeviceId-keyed `RunningEdgeDetector`; report output directories are scoped by `Project/DeviceId` to prevent report mixing for identical `Device_TAG`.
+
+### Version 1.64 (2026-08-18)
+
+**Paired SPEC:** v1.61. Archive before change: v1.63.
+
+Split catalog/merge/poll contracts into Domain + Application (`Annex codes/layers/`) with fake-port unit tests. Device list identity is DeviceId (Project+Configuration+Resource+TAG). GUI table adds Project and OPC server columns. Connect/Disconnect SILworX drop this tool’s API/plugin session only (engine stays up; no c3.exe kill). Alarms use S1–S7; PDF failure keeps the SQL snapshot.
 
 ### Version 1.63 (2026-08-18)
 

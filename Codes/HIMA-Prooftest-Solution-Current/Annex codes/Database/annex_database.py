@@ -157,6 +157,7 @@ class Database:
             self._ensure_present_on_opc_column()
             self._ensure_test_started_at_column()
             self._ensure_silworx_project_column()
+            self._ensure_device_id_identity()
             self._ensure_prooftest_history_table()
             self._ensure_alarm_log_columns()
             return
@@ -223,6 +224,7 @@ class Database:
         self._ensure_present_on_opc_column()
         self._ensure_test_started_at_column()
         self._ensure_silworx_project_column()
+        self._ensure_device_id_identity()
         self._ensure_prooftest_history_table()
         self._ensure_alarm_log_columns()
 
@@ -493,6 +495,91 @@ class Database:
                     "ALTER TABLE [dbo].[DeviceProoftestResultList] ADD [SilworxProject] NVARCHAR(256) NULL"
                 )
 
+    def _ensure_device_id_identity(self) -> None:
+        """Composite DeviceId (Project+Configuration+Resource+Device_TAG), unique, not TAG alone."""
+        if not self._column_exists("DeviceProoftestResultList", "DeviceId"):
+            with self.cursor() as cur:
+                if self.using_sqlite:
+                    cur.execute("ALTER TABLE DeviceProoftestResultList ADD COLUMN DeviceId TEXT")
+                else:
+                    cur.execute(
+                        "ALTER TABLE [dbo].[DeviceProoftestResultList] ADD [DeviceId] NVARCHAR(512) NULL"
+                    )
+        self._backfill_device_ids()
+        if self.using_sqlite:
+            self._rebuild_sqlite_device_list_pk()
+        else:
+            self._ensure_sqlserver_device_id_unique()
+
+    def _backfill_device_ids(self) -> None:
+        from layers.domain.device import DeviceId
+
+        with self.cursor() as cur:
+            cur.execute(
+                "SELECT Device_TAG, Configuration, Resource, SilworxProject, DeviceId "
+                "FROM DeviceProoftestResultList"
+            )
+            rows = cur.fetchall()
+            for tag, cfg, res, project, existing in rows:
+                if existing:
+                    continue
+                key = DeviceId(project or "", cfg or "", res or "", tag or "").key()
+                cur.execute(
+                    "UPDATE DeviceProoftestResultList SET DeviceId=? WHERE Device_TAG=? "
+                    "AND (DeviceId IS NULL OR DeviceId='')",
+                    (key, tag),
+                )
+
+    def _rebuild_sqlite_device_list_pk(self) -> None:
+        with self.cursor() as cur:
+            cur.execute("PRAGMA table_info(DeviceProoftestResultList)")
+            cols = cur.fetchall()
+        pk_cols = [str(c[1]) for c in cols if int(c[5] or 0) == 1]
+        if pk_cols == ["DeviceId"]:
+            return
+        with self.cursor() as cur:
+            cur.execute(
+                """CREATE TABLE IF NOT EXISTS DeviceProoftestResultList_v2 (
+                    DeviceId TEXT PRIMARY KEY,
+                    Device_TAG TEXT NOT NULL, Results_Type TEXT NOT NULL, Configuration TEXT,
+                    Resource TEXT, OPC_Server TEXT, OPC_ItemPrefix TEXT, IsActive INTEGER DEFAULT 1,
+                    LastSeenAt TEXT, LastRunning INTEGER, TestInProgress INTEGER DEFAULT 0,
+                    PresentOnOpc INTEGER DEFAULT 0, TestStartedAt TEXT, SilworxProject TEXT)"""
+            )
+            cur.execute(
+                "INSERT OR REPLACE INTO DeviceProoftestResultList_v2 "
+                "(DeviceId, Device_TAG, Results_Type, Configuration, Resource, OPC_Server, "
+                "OPC_ItemPrefix, IsActive, LastSeenAt, LastRunning, TestInProgress, "
+                "PresentOnOpc, TestStartedAt, SilworxProject) "
+                "SELECT DeviceId, Device_TAG, Results_Type, Configuration, Resource, OPC_Server, "
+                "OPC_ItemPrefix, IsActive, LastSeenAt, LastRunning, TestInProgress, "
+                "PresentOnOpc, TestStartedAt, SilworxProject FROM DeviceProoftestResultList "
+                "WHERE DeviceId IS NOT NULL AND DeviceId <> ''"
+            )
+            cur.execute("DROP TABLE DeviceProoftestResultList")
+            cur.execute("ALTER TABLE DeviceProoftestResultList_v2 RENAME TO DeviceProoftestResultList")
+
+    def _ensure_sqlserver_device_id_unique(self) -> None:
+        with self.cursor() as cur:
+            cur.execute(
+                "SELECT name FROM sys.key_constraints WHERE parent_object_id = "
+                "OBJECT_ID('dbo.DeviceProoftestResultList') AND type = 'PK'"
+            )
+            pk = cur.fetchone()
+            if pk and str(pk[0]):
+                try:
+                    cur.execute(
+                        f"ALTER TABLE [dbo].[DeviceProoftestResultList] DROP CONSTRAINT [{pk[0]}]"
+                    )
+                except Exception:
+                    pass
+            cur.execute(
+                "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_DPRL_DeviceId' "
+                "AND object_id = OBJECT_ID('dbo.DeviceProoftestResultList')) "
+                "CREATE UNIQUE INDEX [UX_DPRL_DeviceId] ON [dbo].[DeviceProoftestResultList]([DeviceId]) "
+                "WHERE [DeviceId] IS NOT NULL"
+            )
+
     def _ensure_prooftest_history_table(self) -> None:
         if self._table_exists("ProoftestHistory"):
             return
@@ -736,14 +823,23 @@ class Database:
         last_running: Optional[bool] = None,
         test_in_progress: Optional[bool] = None,
         silworx_project: Optional[str] = None,
+        device_id: Optional[str] = None,
     ) -> None:
+        from layers.domain.device import DeviceId
+
         now = datetime.now().isoformat()
+        key = device_id or DeviceId(
+            silworx_project or "",
+            configuration or "",
+            resource or "",
+            device_tag or "",
+        ).key()
         with self.cursor() as cur:
-            cur.execute("SELECT Device_TAG FROM DeviceProoftestResultList WHERE Device_TAG=?", (device_tag,))
+            cur.execute("SELECT DeviceId FROM DeviceProoftestResultList WHERE DeviceId=?", (key,))
             exists = cur.fetchone()
             if exists:
-                fields = ["Results_Type=?", "IsActive=1", "LastSeenAt=?"]
-                params: List[Any] = [results_type, now]
+                fields = ["Results_Type=?", "IsActive=1", "LastSeenAt=?", "Device_TAG=?"]
+                params: List[Any] = [results_type, now, device_tag]
                 if opc_server is not None:
                     fields.append("OPC_Server=?")
                     params.append(opc_server)
@@ -767,8 +863,8 @@ class Database:
                     params.append(int(test_in_progress))
                     if test_in_progress:
                         cur.execute(
-                            "SELECT TestInProgress FROM DeviceProoftestResultList WHERE Device_TAG=?",
-                            (device_tag,),
+                            "SELECT TestInProgress FROM DeviceProoftestResultList WHERE DeviceId=?",
+                            (key,),
                         )
                         prev_row = cur.fetchone()
                         if not prev_row or not prev_row[0]:
@@ -777,16 +873,20 @@ class Database:
                     else:
                         fields.append("TestStartedAt=?")
                         params.append(None)
-                params.append(device_tag)
-                cur.execute(f"UPDATE DeviceProoftestResultList SET {', '.join(fields)} WHERE Device_TAG=?", params)
+                params.append(key)
+                cur.execute(
+                    f"UPDATE DeviceProoftestResultList SET {', '.join(fields)} WHERE DeviceId=?",
+                    params,
+                )
             else:
                 started_at = now if test_in_progress else None
                 cur.execute(
                     "INSERT INTO DeviceProoftestResultList "
-                    "(Device_TAG, Results_Type, Configuration, Resource, OPC_Server, OPC_ItemPrefix, "
+                    "(DeviceId, Device_TAG, Results_Type, Configuration, Resource, OPC_Server, OPC_ItemPrefix, "
                     "IsActive, LastSeenAt, LastRunning, TestInProgress, TestStartedAt, SilworxProject) "
-                    "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
                     (
+                        key,
                         device_tag,
                         results_type,
                         configuration,
@@ -807,6 +907,7 @@ class Database:
         present = bool(row.get("present_on_opc"))
         opc = str(row.get("opc_server") or "").strip()
         project = str(row.get("silworx_project") or "").strip()
+        row["project"] = project
         if present:
             row["source_kind"] = "opc"
             row["source_name"] = opc
@@ -824,27 +925,36 @@ class Database:
     def export_device_rows(self) -> List[Dict[str, Any]]:
         with self.cursor() as cur:
             cur.execute(
-                "SELECT Device_TAG, Results_Type, Configuration, Resource, OPC_Server, OPC_ItemPrefix, "
+                "SELECT DeviceId, Device_TAG, Results_Type, Configuration, Resource, OPC_Server, OPC_ItemPrefix, "
                 "IsActive, LastSeenAt, LastRunning, TestInProgress, PresentOnOpc, SilworxProject "
-                "FROM DeviceProoftestResultList ORDER BY Device_TAG"
+                "FROM DeviceProoftestResultList ORDER BY Device_TAG, SilworxProject, OPC_Server"
             )
             return [
                 {
-                    "device_tag": row[0],
-                    "results_type": row[1],
-                    "configuration": row[2],
-                    "resource": row[3],
-                    "opc_server": row[4],
-                    "opc_item_prefix": row[5],
-                    "is_active": int(row[6] or 0),
-                    "last_seen_at": row[7],
-                    "last_running": bool(row[8]) if row[8] is not None else None,
-                    "test_in_progress": bool(row[9]) if row[9] is not None else False,
-                    "present_on_opc": bool(row[10]) if row[10] is not None else False,
-                    "silworx_project": row[11] or "",
+                    "device_id": row[0] or "",
+                    "device_tag": row[1],
+                    "results_type": row[2],
+                    "configuration": row[3],
+                    "resource": row[4],
+                    "opc_server": row[5],
+                    "opc_item_prefix": row[6],
+                    "is_active": int(row[7] or 0),
+                    "last_seen_at": row[8],
+                    "last_running": bool(row[9]) if row[9] is not None else None,
+                    "test_in_progress": bool(row[10]) if row[10] is not None else False,
+                    "present_on_opc": bool(row[11]) if row[11] is not None else False,
+                    "silworx_project": row[12] or "",
+                    "project": row[12] or "",
                 }
                 for row in cur.fetchall()
             ]
+
+    def set_device_present_on_opc_by_id(self, device_id: str, present: bool) -> None:
+        with self.cursor() as cur:
+            cur.execute(
+                "UPDATE DeviceProoftestResultList SET PresentOnOpc=? WHERE DeviceId=?",
+                (1 if present else 0, device_id),
+            )
 
     def set_device_present_on_opc(self, device_tag: str, present: bool) -> None:
         with self.cursor() as cur:
@@ -869,23 +979,26 @@ class Database:
     def list_active_devices(self) -> List[Dict[str, Any]]:
         with self.cursor() as cur:
             cur.execute(
-                "SELECT Device_TAG, Results_Type, Configuration, Resource, OPC_Server, OPC_ItemPrefix, "
+                "SELECT DeviceId, Device_TAG, Results_Type, Configuration, Resource, OPC_Server, OPC_ItemPrefix, "
                 "LastRunning, TestInProgress, PresentOnOpc, SilworxProject "
-                "FROM DeviceProoftestResultList WHERE IsActive=1 ORDER BY Device_TAG"
+                "FROM DeviceProoftestResultList WHERE IsActive=1 "
+                "ORDER BY Device_TAG, SilworxProject, OPC_Server"
             )
             return [
                 self._with_device_source(
                     {
-                        "device_tag": row[0],
-                        "results_type": row[1],
-                        "configuration": row[2],
-                        "resource": row[3],
-                        "opc_server": row[4],
-                        "opc_item_prefix": row[5],
-                        "last_running": bool(row[6]) if row[6] is not None else None,
-                        "test_in_progress": bool(row[7]) if row[7] is not None else False,
-                        "present_on_opc": bool(row[8]) if row[8] is not None else False,
-                        "silworx_project": row[9] or "",
+                        "device_id": row[0] or "",
+                        "device_tag": row[1],
+                        "results_type": row[2],
+                        "configuration": row[3],
+                        "resource": row[4],
+                        "opc_server": row[5],
+                        "opc_item_prefix": row[6],
+                        "last_running": bool(row[7]) if row[7] is not None else None,
+                        "test_in_progress": bool(row[8]) if row[8] is not None else False,
+                        "present_on_opc": bool(row[9]) if row[9] is not None else False,
+                        "silworx_project": row[10] or "",
+                        "project": row[10] or "",
                     }
                 )
                 for row in cur.fetchall()
@@ -934,8 +1047,9 @@ class Database:
             cur.execute("UPDATE DeviceProoftestResultList SET PresentOnOpc=0")
             for tag in present:
                 cur.execute(
-                    "UPDATE DeviceProoftestResultList SET PresentOnOpc=1 WHERE Device_TAG=?",
-                    (tag,),
+                    "UPDATE DeviceProoftestResultList SET PresentOnOpc=1 "
+                    "WHERE DeviceId=? OR Device_TAG=? OR OPC_ItemPrefix=?",
+                    (tag, tag, tag),
                 )
 
     def _prooftest_table_names(self) -> List[str]:
@@ -985,29 +1099,28 @@ class Database:
         report_output: Optional[Path] = None,
     ) -> None:
         """
-        Keep detected devices. For tags no longer detected: keep the row if the
-        device has at least one Prooftest report; otherwise delete it.
+        Keep detected devices. Missing DeviceIds are marked inactive; snapshot
+        history is never deleted.
         """
         present = set(present_tags)
         with self.cursor() as cur:
-            cur.execute("SELECT Device_TAG, Results_Type FROM DeviceProoftestResultList")
-            rows = [(str(row[0]), row[1]) for row in cur.fetchall()]
-        for tag, results_type in rows:
-            if tag in present:
-                continue
-            if self.device_has_prooftest_reports(
-                tag,
-                results_type=str(results_type) if results_type else None,
-                report_output=report_output,
-            ):
+            cur.execute(
+                "SELECT DeviceId, Device_TAG, Results_Type FROM DeviceProoftestResultList"
+            )
+            rows = [(str(row[0] or ""), str(row[1]), row[2]) for row in cur.fetchall()]
+        for device_id, tag, results_type in rows:
+            if device_id in present or tag in present:
                 with self.cursor() as cur:
                     cur.execute(
-                        "UPDATE DeviceProoftestResultList SET IsActive=1 WHERE Device_TAG=?",
-                        (tag,),
+                        "UPDATE DeviceProoftestResultList SET IsActive=1 WHERE DeviceId=? OR Device_TAG=?",
+                        (device_id, tag),
                     )
-            else:
-                with self.cursor() as cur:
-                    cur.execute("DELETE FROM DeviceProoftestResultList WHERE Device_TAG=?", (tag,))
+                continue
+            with self.cursor() as cur:
+                cur.execute(
+                    "UPDATE DeviceProoftestResultList SET IsActive=0 WHERE DeviceId=? OR Device_TAG=?",
+                    (device_id, tag),
+                )
 
     def deactivate_missing_devices(self, active_tags: List[str]) -> None:
         """Backward-compatible name — now applies add/keep/delete retention."""

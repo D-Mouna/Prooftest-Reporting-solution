@@ -10,6 +10,46 @@ ACTIVE_WINDOW_SEC = 60.0
 
 
 DIAGNOSTICS: Dict[str, Dict[str, str]] = {
+    "S1": {
+        "step": "S1",
+        "title": "StartEngine / folders",
+        "solution": "Grant write access to station_root; free disk space; check antivirus.",
+    },
+    "S2": {
+        "step": "S2",
+        "title": "Store connect / schema",
+        "solution": "Start SQL Server or allow SQLite fallback; check solution.ini Database section.",
+    },
+    "S3": {
+        "step": "S3",
+        "title": "LoadResultTypes / RefreshCatalog / merge",
+        "solution": "Fix Results Structure CSVs; resolve duplicate TAG+OPC path collisions.",
+    },
+    "S4": {
+        "step": "S4",
+        "title": "OPC discover / bind / read",
+        "solution": "Start X-OPC; confirm OTS ProofTest / OPC ProofTest branches; 32-bit Python.",
+    },
+    "S5": {
+        "step": "S5",
+        "title": "Poll / CompleteTest snapshot",
+        "solution": "Check OPC quality; verify SQL ProofTest_* table; retry snapshot insert.",
+    },
+    "S6": {
+        "step": "S6",
+        "title": "Report HTML/PDF",
+        "solution": "Check report templates and output folder. Snapshot in SQL is kept if PDF fails.",
+    },
+    "S7": {
+        "step": "S7",
+        "title": "SILworX attach/disconnect",
+        "solution": "Open a project in the SILworX GUI to connect. Disconnect never closes SILworX or c3.exe.",
+    },
+    "GUI": {
+        "step": "GUI",
+        "title": "Web GUI",
+        "solution": "Use localhost for start/stop; do not open files outside the report folder.",
+    },
     "G-02": {
         "step": "G-02",
         "title": "Cannot create first-run folder",
@@ -121,6 +161,7 @@ class AlarmManager:
         self._shown_keys: Set[str] = set()
         self._pending_popups: List[Dict[str, Any]] = []
         self._last_seen: Dict[str, float] = {}
+        self._last_error: Optional[Dict[str, Any]] = None
         self._persist_callback: Optional[Callable[[AlarmRecord], None]] = None
 
     def set_persist_callback(self, callback: Callable[[AlarmRecord], None]) -> None:
@@ -135,6 +176,7 @@ class AlarmManager:
         device_tag: Optional[str] = None,
         cause: Optional[str] = None,
         show_popup: bool = True,
+        action: Optional[str] = None,
     ) -> None:
         diag = DIAGNOSTICS.get(step, {})
         solution = diag.get("solution", "See specification troubleshooting catalog.")
@@ -153,6 +195,11 @@ class AlarmManager:
         with self._lock:
             self._alarms.append(record)
             self._last_seen[error_key] = time.monotonic()
+            self._last_error = {
+                "step": step,
+                "action": action or diag.get("title") or step,
+                "message": message,
+            }
             if show_popup and error_key not in self._shown_keys:
                 self._shown_keys.add(error_key)
                 self._pending_popups.append(
@@ -171,6 +218,10 @@ class AlarmManager:
                 self._persist_callback(record)
             except Exception:
                 pass
+
+    def last_error(self) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            return dict(self._last_error) if self._last_error else None
 
     def clear_shown_on_refresh(self) -> None:
         with self._lock:

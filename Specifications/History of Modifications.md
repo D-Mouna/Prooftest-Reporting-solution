@@ -3,10 +3,10 @@
 | Field | Value |
 |-------|--------|
 | **Document** | Cumulative change log for SPEC-001 |
-| **Paired spec** | [SPEC-001-v1.60-...](./SPEC-001-v1.60-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) (current) |
+| **Paired spec** | [SPEC-001-v1.62-...](./SPEC-001-v1.62-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) (current) |
 | **Location** | `Z:\Project\Report Solution\Specifications` |
 | **Filename** | `History of Modifications.md` |
-| **Updated** | 2026-08-18 |
+| **Updated** | 2026-08-19 |
 
 > **Policy:** Each SPEC version file documents **only** what changed from its immediate predecessor. This file collects **all** version-to-version modifications for audit. Do not edit superseded SPEC files — append new sections here when publishing a new SPEC version.
 
@@ -21,6 +21,34 @@
 ---
 
 ## Collected modifications (newest first)
+
+### Version 1.62 (2026-08-19)
+
+**Supersedes v1.61.** Report folders scoped by Project/DeviceId; presentation controller refactor; production poll/report uses LiveTestService completion path.
+
+#### What changed to v1.62
+
+| Topic | Change |
+|-------|--------|
+| Report folders | Reports stored under `<Results_Type>/<Project>/<Device_TAG>/` (Project from DeviceId); legacy tag-only folders remain readable. |
+| Web report lookup | `GET /api/reports` accepts `project` and/or `device_id` params so identical `Device_TAG` across projects doesn't mix report lists. |
+| Production detection/reporting | Production poll uses `LiveTestService` with a `RunningEdgeDetector` keyed by `DeviceId`; snapshot INSERT + report generation happen on the completion path. |
+| Presentation controllers | FastAPI routes moved into `Annex codes/layers/presentation/controllers.py` and call services only. |
+| Architecture diagrams | Mermaid paired to v1.62; §7 report path includes Project; §10 shows `layers/`; new §12 layered architecture (Presentation/Application/Domain + DeviceId); PNG/SVG `01`–`12` regenerated. |
+
+### Version 1.61 (2026-08-18)
+
+**Supersedes v1.60.** Layered architecture; composite catalog identity; GUI Project/OPC columns; SILworX connect/disconnect without stopping SILworX.
+
+#### What changed to v1.61
+
+| Topic | Change |
+|-------|--------|
+| **Layers** | Presentation / Application / Domain / ports. Domain in `Annex codes/layers/` does not import FastAPI, OpenOPC, or pyodbc. |
+| **Device identity** | DeviceId = Project + Configuration + Resource + Device_TAG. Same TAG, two projects → two rows. SILworX+OPC same DeviceId → one row. |
+| **Web table** | Project and OPC server columns; sort Device_TAG, Project, OPC server. |
+| **SILworX buttons** | Connect/Disconnect affect this tool’s API/plugin session only (never c3.exe / project/close GUI). |
+| **Errors + tests** | Step codes S1–S7; `test_layers.py` with fake ports. |
 
 ### Version 1.60 (2026-08-18)
 

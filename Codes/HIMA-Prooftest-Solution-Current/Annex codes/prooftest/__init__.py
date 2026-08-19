@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
-__version__ = "1.32.0"
+__version__ = "1.64.0"
 
 _SOLUTION_ROOT = Path(__file__).resolve().parent.parent.parent
 _TOOL_STEPS = _SOLUTION_ROOT / "Tool Steps"
@@ -60,6 +60,9 @@ class _ProoftestFinder(importlib.abc.MetaPathFinder):
 
 
 def _bootstrap() -> None:
+    annex = str(_ANNEX_BASE)
+    if annex not in sys.path:
+        sys.path.insert(0, annex)
     if not any(isinstance(finder, _ProoftestFinder) for finder in sys.meta_path):
         sys.meta_path.insert(0, _ProoftestFinder())
 

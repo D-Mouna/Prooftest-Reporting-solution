@@ -1,5 +1,7 @@
 .env
 *.token
+Github API Key.txt
+.cursor/
 __pycache__/
 *.pyc
 *.pyo
@@ -8,4 +10,8 @@ __pycache__/
 .DS_Store
 Thumbs.db
 _tok.tmp
+~$*
+*.mp4
+cert_creator_*.txt
+commit push github.py
 Codes/HIMA-Prooftest-Solution-Current/Annex codes/Tool test/data/

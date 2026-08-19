@@ -410,7 +410,7 @@ class ProoftestService:
             if manual:
                 self.opc.invalidate_cache()
             if not self._opc_servers:
-                self.alarms.raise_alarm("P3", "No X-OPC server detected on host")
+                self.alarms.raise_alarm("S4", "No X-OPC server detected on host", action="RefreshCatalog")
         except Exception as exc:
             self.alarms.raise_alarm("P3", "OPC discovery failed", cause=str(exc))
 
@@ -434,8 +434,14 @@ class ProoftestService:
 
         if self._stop.is_set() or self._stopped:
             return {}
-        self._case1_sync.commit()
-        self._publish_silworx_state()
+        try:
+            self._case1_sync.commit()
+        except Exception as exc:
+            log.warning("Sync marker commit failed: %s", exc)
+        try:
+            self._publish_silworx_state()
+        except Exception as exc:
+            log.warning("Publish SILworX state failed: %s", exc)
         self.db.set_service_state("deployment_case", "1")
         self.db.set_service_state("opc_servers", str(len(self._opc_servers)))
         self.db.set_service_state("opc_server_list", ";".join(self._opc_servers))
@@ -480,11 +486,127 @@ class ProoftestService:
                 log.warning("Background sync error: %s", exc)
             self._stop.wait(0.5)
 
+    def list_devices(self, view: str = "all") -> list:
+        if self._stopped and not self._starting:
+            return []
+        try:
+            from layers.domain.device import sort_device_dicts
+
+            return sort_device_dicts(self.db.list_devices(view))
+        except Exception as exc:
+            log.exception("ListDevices failed: %s", exc)
+            return []
+
+    def list_reports(
+        self,
+        device: str,
+        results_type: Optional[str] = None,
+        project: Optional[str] = None,
+        device_id: Optional[str] = None,
+    ) -> list:
+        from prooftest.annex_pdf_generation import list_reports_for_device
+
+        return list_reports_for_device(
+            self.config.report_output,
+            device,
+            results_type=results_type,
+            project=project,
+            device_id=device_id,
+        )
+
+    def close_silworx_connection(self) -> Dict[str, object]:
+        """Drop this tool's API/plugin session only. Engine and OPC keep running."""
+        already = self._case1_sync.is_api_suspended() and not self._case1_sync.is_tool_attached()
+        if already:
+            return {
+                "silworx": "not connected",
+                "status": "already_disconnected",
+                "engine_running": self.engine_running,
+            }
+        try:
+            self._case1_sync.detach_tool_clients()
+        except Exception as exc:
+            self.alarms.raise_alarm(
+                "S7",
+                "Plugin/API detach failed",
+                cause=str(exc),
+                action="CloseSilworXconnection",
+            )
+            try:
+                self._case1_sync.detach_tool_clients()
+            except Exception:
+                pass
+        try:
+            self.db.set_service_state("silworx_api_connected", "0")
+            self.db.set_service_state("device_list_source", "opc_fallback")
+        except Exception:
+            pass
+        try:
+            self.refresh(manual=True)
+        except Exception as exc:
+            self.alarms.raise_alarm("S7", str(exc), action="CloseSilworXconnection")
+        return {
+            "silworx": "not connected",
+            "status": "disconnected",
+            "engine_running": self.engine_running,
+        }
+
+    def resume_silworx_connection(self) -> Dict[str, object]:
+        """Attach to an already-open SILworX project. Never opens or kills SILworX."""
+        try:
+            self._case1_sync.resume_tool_clients()
+        except Exception as exc:
+            self.alarms.raise_alarm("S7", str(exc), action="ResumeSilworXconnection")
+            return {
+                "silworx": "not connected",
+                "status": "auth_or_cert_error",
+                "engine_running": self.engine_running,
+            }
+        try:
+            self.refresh(manual=True)
+        except Exception as exc:
+            self.alarms.raise_alarm("S7", str(exc), action="ResumeSilworXconnection")
+        attached = self._case1_sync.is_tool_attached()
+        if not attached:
+            self.alarms.raise_alarm(
+                "S7",
+                "no open project",
+                action="ResumeSilworXconnection",
+                severity="Warning",
+            )
+            return {
+                "silworx": "not connected",
+                "status": "no_open_project",
+                "engine_running": self.engine_running,
+            }
+        return {
+            "silworx": "running",
+            "status": "attached",
+            "engine_running": self.engine_running,
+        }
+
+    def _silworx_badge(self) -> str:
+        return "running" if self._case1_sync.is_tool_attached() else "not connected"
+
     def _device_counts(self) -> Tuple[int, int]:
         try:
             return self.db.count_listed_devices(), self.db.count_opc_devices()
         except Exception:
             return 0, 0
+
+    def _decorate_health(self, payload: Dict[str, object], engine: str) -> Dict[str, object]:
+        payload["engine"] = engine
+        servers = payload.get("opc_servers") or []
+        payload["opc_count"] = len(servers) if isinstance(servers, list) else int(len(self._opc_servers))
+        if not payload["opc_count"] and self._opc_servers:
+            payload["opc_count"] = len(self._opc_servers)
+        payload["device_count"] = int(payload.get("active_devices") or 0)
+        payload["silworx_status"] = self._silworx_badge() if engine != "stopped" else "not connected"
+        try:
+            payload["last_error"] = self.alarms.last_error()
+        except Exception:
+            payload["last_error"] = None
+        return payload
 
     def health(self) -> Dict[str, object]:
         now = time.monotonic()
@@ -538,6 +660,7 @@ class ProoftestService:
                     "web_host_alive": True,
                     "web_auth_required": self.config.web_auth_enabled,
                 }
+                payload = self._decorate_health(payload, "stopped")
                 self._health_cache = dict(payload)
                 self._health_cache_at = time.monotonic()
                 return payload
@@ -561,6 +684,7 @@ class ProoftestService:
                     "web_host_alive": True,
                     "web_auth_required": self.config.web_auth_enabled,
                 }
+                payload = self._decorate_health(payload, "starting")
                 self._health_cache = dict(payload)
                 self._health_cache_at = time.monotonic()
                 return payload
@@ -598,8 +722,24 @@ class ProoftestService:
                 "web_host_alive": True,
                 "web_auth_required": self.config.web_auth_enabled,
             }
+            payload = self._decorate_health(payload, "running")
             self._health_cache = dict(payload)
             self._health_cache_at = time.monotonic()
             return payload
+        except Exception as exc:
+            log.exception("GetEngineStatus error: %s", exc)
+            return self._decorate_health(
+                {
+                    "engine": "running" if self.engine_running else "stopped",
+                    "opc_servers": [],
+                    "active_devices": 0,
+                    "opc_devices": 0,
+                    "queue_depth": 0,
+                    "silworx": {},
+                    "engine_running": bool(self.engine_running),
+                    "web_host_alive": True,
+                },
+                "running" if self.engine_running else "stopped",
+            )
         finally:
             self._health_lock.release()

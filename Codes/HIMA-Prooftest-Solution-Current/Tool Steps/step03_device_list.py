@@ -68,7 +68,7 @@ def collect_devices_from_global_variables(
         return []
 
     found: List[ApiDiscoveredDevice] = []
-    seen_tags: Set[str] = set()
+    seen_ids: Set[Tuple[str, str, str]] = set()
 
     for node in gv_nodes:
         variables: List[GlobalVariableRecord] = client.list_top_level_globals(node.internal_address)
@@ -77,14 +77,15 @@ def collect_devices_from_global_variables(
                 continue
             if not var.name or "." in var.name:
                 continue
-            if var.name in seen_tags:
+            ident = (node.configuration or "", node.resource or "", var.name)
+            if ident in seen_ids:
                 log.warning(
-                    "Duplicate Device_TAG %s in SILworX globals (skipped duplicate at %s)",
+                    "Duplicate Device_TAG %s in same project+config+resource (skipped at %s)",
                     var.name,
                     node.tree_path,
                 )
                 continue
-            seen_tags.add(var.name)
+            seen_ids.add(ident)
             found.append(
                 ApiDiscoveredDevice(
                     device_tag=var.name,
@@ -154,7 +155,15 @@ def try_discover_devices_via_api(
         project_name = case1_sync.attached_project_name_for_port(instance.api_port)
         for device in devices:
             stamped = replace(device, silworx_project=project_name or device.silworx_project)
-            merged[stamped.device_tag] = stamped
+            from layers.domain.device import DeviceId
+
+            key = DeviceId(
+                stamped.silworx_project,
+                stamped.configuration,
+                stamped.resource,
+                stamped.device_tag,
+            ).key()
+            merged[key] = stamped
         log.info(
             "API device discovery on %s: %d device(s) (project=%s)",
             instance.label,
@@ -200,72 +209,134 @@ def apply_merged_device_list(
     api_devices: Optional[List[ApiDiscoveredDevice]],
     opc_discovered: Optional[List[OpcDiscoveredDevice]],
     structures: Dict[str, ResultsStructure],
+    opc: OpcManager | None = None,
 ) -> Tuple[List[str], str]:
     """
     Persist the union of simultaneous API and OPC discoveries.
 
-    API wins Results_Type / Configuration / Resource.
-    OPC wins OPC_Server / OPC_ItemPrefix / PresentOnOpc.
+    Identity is DeviceId = Project + Configuration + Resource + Device_TAG.
+    API wins Results_Type / Configuration / Resource / Project.
+    OPC wins OPC_Server / OPC_ItemPrefix / PresentOnOpc when BindOpcPaths matches.
     """
-    del structures  # type catalogue used only by the discover callers
+    del structures
+    from layers.domain.device import DeviceId
+    from layers.domain.merger import CatalogMerger, OpcObservation, SilworxIdentity
+
     api_ok = api_devices is not None
     opc_ok = opc_discovered is not None
-    api_by_tag = {device.device_tag: device for device in (api_devices or [])}
-    opc_map: Dict[str, Tuple[str, str]] = {}
-    opc_type: Dict[str, str] = {}
+    silworx_rows = [
+        SilworxIdentity(
+            project=d.silworx_project or "",
+            configuration=d.configuration or "",
+            resource=d.resource or "",
+            device_tag=d.device_tag,
+            results_type=d.results_type,
+        )
+        for d in (api_devices or [])
+    ]
+    opc_obs: List[OpcObservation] = []
     for device_tag, results_type, server, prefix in opc_discovered or []:
-        opc_map[device_tag] = (server, prefix)
-        opc_type[device_tag] = results_type
+        opc_obs.append(
+            OpcObservation(
+                device_tag=device_tag,
+                opc_server=server,
+                opc_item_prefix=prefix,
+                results_type=results_type,
+                running_item=f"{prefix}.Running",
+            )
+        )
+    if opc is not None and silworx_rows:
+        for ident in silworx_rows:
+            bound = None
+            try:
+                servers = list(getattr(opc, "_last_servers", []) or [])
+                if not servers:
+                    servers = [info.prog_id for info in opc.health_snapshot()]
+            except Exception:
+                servers = []
+            for server in servers:
+                path = getattr(opc, "find_running_path", lambda *_a, **_k: None)(server, ident.device_tag)
+                if path:
+                    prefix = path[: -len(".Running")] if str(path).endswith(".Running") else path
+                    bound = OpcObservation(
+                        device_tag=ident.device_tag,
+                        opc_server=server,
+                        opc_item_prefix=prefix,
+                        results_type=ident.results_type,
+                        running_item=str(path),
+                    )
+                    break
+            if bound:
+                opc_obs.append(bound)
+
+    existing_rows = {r.get("device_id"): r for r in db.list_active_devices() if r.get("device_id")}
+    from layers.domain.device import Device
+
+    existing_devices = {}
+    for key, row in existing_rows.items():
+        existing_devices[key] = Device(
+            device_id=DeviceId.from_key(key),
+            results_type=row.get("results_type") or "",
+        )
+
+    merge = CatalogMerger().merge(silworx_rows, opc_obs, existing=existing_devices)
+    for collision in merge.collisions:
+        db.alarms.raise_alarm(
+            "S3",
+            f"OPC path collision for {collision.device_tag}",
+            device_tag=collision.device_tag,
+            cause=collision.opc_path,
+            severity="Error",
+            show_popup=True,
+        )
+    for dup in merge.skipped_duplicates:
+        db.alarms.raise_alarm(
+            "S3",
+            "Duplicate TAG in same project+config+resource skipped",
+            device_tag=dup,
+            severity="Warning",
+            show_popup=False,
+        )
 
     from prooftest.annex_list_archive import keep_opc_only_enabled
 
     keep_opc_only = opc_ok and keep_opc_only_enabled(db)
 
-    ordered_tags: List[str] = []
-    seen: Set[str] = set()
-
-    def _add(tag: str) -> None:
-        if tag and tag not in seen:
-            seen.add(tag)
-            ordered_tags.append(tag)
-
-    for tag in api_by_tag:
-        if keep_opc_only and tag not in opc_map:
-            continue
-        _add(tag)
-    for tag in opc_map:
-        _add(tag)
-
     active: List[str] = []
     folder_pairs: List[Tuple[str, str]] = []
-    for tag in ordered_tags:
-        api_dev = api_by_tag.get(tag)
-        server, prefix = opc_map.get(tag, (None, None))
-        if api_dev is not None:
-            results_type = api_dev.results_type
-            configuration = api_dev.configuration or None
-            resource = api_dev.resource or None
-        else:
-            results_type = opc_type.get(tag, "")
-            configuration = None
-            resource = None
-        if not results_type:
+    present_keys: List[str] = []
+    for device in merge.devices:
+        if keep_opc_only and not device.present_on_opc:
             continue
-        active.append(tag)
-        folder_pairs.append((tag, results_type))
-        db.upsert_device(
-            tag,
-            results_type,
-            opc_server=server,
-            opc_prefix=prefix,
-            configuration=configuration,
-            resource=resource,
-            silworx_project=(api_dev.silworx_project or None) if api_dev is not None else None,
-        )
+        if not device.results_type:
+            continue
+        key = device.device_id.key()
+        try:
+            db.upsert_device(
+                device.device_tag,
+                device.results_type,
+                opc_server=device.opc_server or None,
+                opc_prefix=device.opc_item_prefix or None,
+                configuration=device.configuration or None,
+                resource=device.resource or None,
+                silworx_project=device.project or None,
+                device_id=key,
+            )
+            db.set_device_present_on_opc_by_id(key, device.present_on_opc)
+        except Exception as exc:
+            db.alarms.raise_alarm(
+                "S3",
+                f"Store upsert failed for {device.device_tag}",
+                device_tag=device.device_tag,
+                cause=str(exc),
+                show_popup=False,
+            )
+            continue
+        active.append(device.device_tag)
+        present_keys.append(key)
+        folder_pairs.append((device.device_tag, device.results_type))
 
-    db.reconcile_device_list(active, report_output=config.report_output)
-    if opc_ok:
-        db.set_present_on_opc(set(opc_map.keys()))
+    db.reconcile_device_list(present_keys, report_output=config.report_output)
     if folder_pairs:
         sync_device_report_folders(config, folder_pairs, db.alarms)
 
@@ -304,7 +375,7 @@ def apply_api_device_list(
 ) -> List[str]:
     """Persist API devices, merging a live OPC browse when the manager is available."""
     opc_discovered = _discover_opc_or_none(opc, structures)
-    active, _source = apply_merged_device_list(config, db, devices, opc_discovered, structures)
+    active, _source = apply_merged_device_list(config, db, devices, opc_discovered, structures, opc=opc)
     return active
 
 
@@ -335,7 +406,7 @@ def sync_device_list_case1_via_api(
         api_devices = api_future.result()
         opc_discovered = opc_future.result()
 
-    return apply_merged_device_list(config, db, api_devices, opc_discovered, structures)
+    return apply_merged_device_list(config, db, api_devices, opc_discovered, structures, opc=opc)
 
 
 def sync_device_list_from_opc(

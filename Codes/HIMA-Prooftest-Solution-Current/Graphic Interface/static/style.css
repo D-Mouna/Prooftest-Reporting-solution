@@ -761,13 +761,50 @@ body {
   color: #546e7a;
 }
 
-.device-source {
-  display: block;
-  font-size: 0.72rem;
-  color: #37474f;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.device-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.device-table th {
+  text-align: left;
+  padding: 0.45rem 0.6rem;
+  background: #eceff1;
+  border-bottom: 2px solid #9eacb8;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.device-table td {
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid #e0e0e0;
+  vertical-align: middle;
+}
+.device-table tr {
+  cursor: pointer;
+}
+.device-table tr:hover {
+  background: #e3f2fd;
+}
+.device-table tr.selected {
+  background: #bbdefb;
+  font-weight: 600;
+}
+.device-tag-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.last-error-banner {
+  margin: 0.4rem 0.6rem 0;
+  padding: 0.45rem 0.7rem;
+  background: #ffebee;
+  color: #b71c1c;
+  border: 1px solid #ef9a9a;
+  font-size: 0.8rem;
+}
+.last-error-banner.hidden {
+  display: none;
 }
 
 .scroll-list li:hover {

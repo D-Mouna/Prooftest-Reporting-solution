@@ -1,4 +1,6 @@
 let selectedDevice = null;
+let selectedDeviceId = null;
+let selectedProject = null;
 let selectedResultsType = null;
 let selectedReport = null;
 let shownPopupKeys = new Set();
@@ -107,6 +109,11 @@ function setupListSearch(inputId, listId, stateKey) {
 
 function showListPlaceholder(listId, text) {
   const list = document.getElementById(listId);
+  if (!list) return;
+  if (list.tagName === "TBODY") {
+    list.innerHTML = `<tr class="list-placeholder"><td colspan="5">${escapeHtml(text)}</td></tr>`;
+    return;
+  }
   list.innerHTML = `<li class="list-placeholder">${escapeHtml(text)}</li>`;
 }
 
@@ -118,6 +125,10 @@ async function updateServiceButtons(health) {
   if (!UI.isLive) {
     startBtn.disabled = true;
     stopBtn.disabled = true;
+    const c = document.getElementById("btn-connect-silworx");
+    const d = document.getElementById("btn-disconnect-silworx");
+    if (c) c.disabled = true;
+    if (d) d.disabled = true;
     return;
   }
   if (!health) {
@@ -133,6 +144,11 @@ async function updateServiceButtons(health) {
   const running = !!health.engine_running && !health.stopping && !starting;
   startBtn.disabled = running || starting;
   stopBtn.disabled = !running || starting;
+  const connectBtn = document.getElementById("btn-connect-silworx");
+  const disconnectBtn = document.getElementById("btn-disconnect-silworx");
+  const silRunning = String(health.silworx_status || "").toLowerCase() === "running";
+  if (connectBtn) connectBtn.disabled = !running || silRunning;
+  if (disconnectBtn) disconnectBtn.disabled = !running || !silRunning;
 }
 
 async function waitForEngineRunning(timeoutMs = 180000) {
@@ -258,8 +274,9 @@ function renderHealth(data) {
   const apiProject =
     apiSession.project_name ||
     (apiConnected ? sil.silworx_project_name || sil.project_name || "" : "");
-  const silText = apiProject || "not connected";
-  const silState = apiProject ? "ok" : "";
+  const silworxStatus = String(data.silworx_status || "").toLowerCase();
+  const silText = silworxStatus === "running" ? "running" : "not connected";
+  const silState = silworxStatus === "running" ? "ok" : "warn";
 
   const queueState = (data.queue_depth || 0) > 10 ? "warn" : "";
   const pluginInfo = data.plugin_session || {};
@@ -293,7 +310,7 @@ function renderHealth(data) {
     </div>`,
     `<div class="health-row health-row-mid">
       ${healthCard("Device list", sourceText, "")}
-      ${healthCard("SILworX session", silText, silState)}
+      ${healthCard("SILworX", silText, silState)}
       ${healthCard("Plugin session", pluginText, pluginState)}
       ${healthCard("Queue depth", String(data.queue_depth ?? 0), queueState)}
     </div>`,
@@ -316,7 +333,18 @@ function renderHealth(data) {
     }
   }
 
-  const hasIssue = servers.some((s) => !s.connected) || data.stopping;
+  const err = data.last_error;
+  const errBox = document.getElementById("last-error-banner");
+  if (errBox) {
+    if (err && (err.step || err.message)) {
+      errBox.classList.remove("hidden");
+      errBox.textContent = `${err.step || "?"} · ${err.action || ""} · ${err.message || ""}`.replace(/\s+·\s+$/, "");
+    } else {
+      errBox.classList.add("hidden");
+      errBox.textContent = "";
+    }
+  }
+  const hasIssue = servers.some((s) => !s.connected) || data.stopping || Boolean(data.last_error);
   if (badge) {
     badge.textContent = hasIssue ? "attention" : "healthy";
     badge.className = hasIssue ? "panel-badge panel-badge-warn" : "panel-badge panel-badge-ok";
@@ -428,6 +456,8 @@ async function loadDevices() {
     const hintEmpty = document.getElementById("device-list-hint");
     if (hintEmpty) hintEmpty.textContent = "Device Prooftest Result List · 0 devices";
     selectedDevice = null;
+    selectedDeviceId = null;
+    selectedProject = null;
     selectedResultsType = null;
     updateSelectedLabel();
     showListPlaceholder("report-list", NO_REPORT_TEXT);
@@ -441,31 +471,37 @@ async function loadDevices() {
 
   list.innerHTML = "";
   devices.forEach((d) => {
-    const li = document.createElement("li");
-    li.setAttribute("role", "option");
-    li.dataset.searchText = `${d.device_tag} ${d.results_type || ""} ${d.source_label || ""}`.toLowerCase();
-    if (d.device_tag === selectedDevice) li.classList.add("selected");
+    const tr = document.createElement("tr");
+    const id = d.device_id || `${d.project || ""}|${d.device_tag}`;
+    tr.dataset.searchText = `${d.device_tag} ${d.results_type || ""} ${d.project || ""} ${d.opc_server || ""}`.toLowerCase();
+    tr.dataset.deviceId = id;
+    if (id === selectedDeviceId || (!selectedDeviceId && d.device_tag === selectedDevice)) {
+      tr.classList.add("selected");
+    }
     const onOpc = Boolean(d.present_on_opc);
     const status = onOpc
       ? '<span class="device-status on-opc">OPC</span>'
       : '<span class="device-status off-opc">not on OPC</span>';
-    const source = `<span class="device-source">${escapeHtml(d.source_label || "Source: unknown")}</span>`;
-    li.innerHTML = `
-      <img class="device-logo" src="${vendorLogo(d.results_type)}" alt=""/>
-      <div class="device-info">
+    tr.innerHTML = `
+      <td class="device-tag-cell">
+        <img class="device-logo" src="${vendorLogo(d.results_type)}" alt=""/>
         <span class="device-tag">${escapeHtml(d.device_tag)}</span>
-        <span class="device-type">${escapeHtml(d.results_type || "")} ${status}</span>
-        ${source}
-      </div>`;
-    li.onclick = () => {
+      </td>
+      <td>${escapeHtml(d.results_type || "")}</td>
+      <td>${status}</td>
+      <td>${escapeHtml(d.project || d.silworx_project || "")}</td>
+      <td>${escapeHtml(d.opc_server || "")}</td>`;
+    tr.onclick = () => {
       selectedDevice = d.device_tag;
+      selectedDeviceId = id;
+      selectedProject = d.project || d.silworx_project || "";
       selectedResultsType = d.results_type;
       [...list.children].forEach((c) => c.classList.remove("selected"));
-      li.classList.add("selected");
+      tr.classList.add("selected");
       updateSelectedLabel();
       loadReports();
     };
-    list.appendChild(li);
+    list.appendChild(tr);
   });
   list.scrollTop = previousScroll;
   updateSelectedLabel();
@@ -479,7 +515,7 @@ function updateSelectedLabel() {
     label.textContent = "(No report selected)";
     return;
   }
-  label.textContent = `Selected: ${selectedDevice}${selectedResultsType ? ` (${selectedResultsType})` : ""}`;
+  label.textContent = `Selected: ${selectedDevice}${selectedProject ? ` · ${selectedProject}` : ""}${selectedResultsType ? ` (${selectedResultsType})` : ""}`;
 }
 
 function formatStartedAt(value) {
@@ -602,6 +638,12 @@ async function loadReports() {
   if (selectedResultsType) {
     url += `&results_type=${encodeURIComponent(selectedResultsType)}`;
   }
+  if (selectedProject) {
+    url += `&project=${encodeURIComponent(selectedProject)}`;
+  }
+  if (selectedDeviceId) {
+    url += `&device_id=${encodeURIComponent(selectedDeviceId)}`;
+  }
 
   let reports;
   try {
@@ -713,6 +755,30 @@ async function pollStatus() {
 }
 
 document.getElementById("btn-refresh").onclick = () => refreshAll(true);
+const connectSil = document.getElementById("btn-connect-silworx");
+if (connectSil) {
+  connectSil.onclick = async () => {
+    try {
+      const result = await fetchJson("/api/silworx/connect", { method: "POST", timeoutMs: 60000 });
+      showServiceBanner(`SILworX: ${result.silworx || result.status || "updated"}`);
+      await refreshAll(false);
+    } catch (err) {
+      showServiceBanner(`Connect to SILworX failed: ${err.message}`);
+    }
+  };
+}
+const disconnectSil = document.getElementById("btn-disconnect-silworx");
+if (disconnectSil) {
+  disconnectSil.onclick = async () => {
+    try {
+      const result = await fetchJson("/api/silworx/disconnect", { method: "POST", timeoutMs: 60000 });
+      showServiceBanner(`SILworX: ${result.silworx || result.status || "not connected"}`);
+      await refreshAll(false);
+    } catch (err) {
+      showServiceBanner(`Disconnect SILworX failed: ${err.message}`);
+    }
+  };
+}
 document.getElementById("btn-start-service").onclick = async () => {
   if (!UI.isLive) return;
   const startBtn = document.getElementById("btn-start-service");
@@ -807,6 +873,8 @@ document.getElementById("btn-keep-opc").onclick = async () => {
       `Cleared ${result.removed_count || 0} non-OPC device(s). ${result.opc_devices || 0} OPC device(s) remain.`
     );
     selectedDevice = null;
+    selectedDeviceId = null;
+    selectedProject = null;
     selectedResultsType = null;
     await loadDevices();
   } catch (err) {
