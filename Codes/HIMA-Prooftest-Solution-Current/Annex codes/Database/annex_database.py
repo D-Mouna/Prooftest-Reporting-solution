@@ -857,29 +857,26 @@ class Database:
         with self.cursor() as cur:
             cur.execute("SELECT DeviceId FROM DeviceProoftestResultList WHERE DeviceId=?", (key,))
             exists = cur.fetchone()
-            # Older installs may still treat Device_TAG as unique-ish while DeviceId differs
-            # between OPC-only and SILworX rows. Reclaim one TAG row for this DeviceId and
-            # deactivate sibling duplicates so reconcile cannot thrash them.
-            if device_tag:
+            # Migrate legacy OPC-only rows (empty SilworxProject) onto the SILworX DeviceId.
+            # Do not deactivate other projects that legitimately share the same TAG.
+            if device_tag and silworx_project and not exists:
                 cur.execute(
-                    "SELECT DeviceId FROM DeviceProoftestResultList WHERE Device_TAG=?",
+                    "SELECT DeviceId, SilworxProject FROM DeviceProoftestResultList "
+                    "WHERE Device_TAG=?",
                     (device_tag,),
                 )
-                tag_rows = [str(r[0] or "") for r in cur.fetchall()]
-                if not exists and tag_rows:
-                    donor = tag_rows[0]
-                    if donor and donor != key:
-                        cur.execute(
-                            "UPDATE DeviceProoftestResultList SET DeviceId=? WHERE DeviceId=?",
-                            (key, donor),
-                        )
-                    exists = (key,)
-                if tag_rows:
+                for donor_id, donor_project in cur.fetchall():
+                    donor = str(donor_id or "")
+                    if not donor or donor == key:
+                        continue
+                    if str(donor_project or "").strip():
+                        continue
                     cur.execute(
-                        "UPDATE DeviceProoftestResultList SET IsActive=0 "
-                        "WHERE Device_TAG=? AND DeviceId<>?",
-                        (device_tag, key),
+                        "UPDATE DeviceProoftestResultList SET DeviceId=? WHERE DeviceId=?",
+                        (key, donor),
                     )
+                    exists = (key,)
+                    break
 
             if exists:
                 fields = ["Results_Type=?", "IsActive=1", "LastSeenAt=?", "Device_TAG=?", "DeviceId=?"]
@@ -1086,14 +1083,29 @@ class Database:
             return int(row[0] or 0) if row else 0
 
     def set_present_on_opc(self, tags: Set[str]) -> None:
+        """Mark OPC presence. Keys may be DeviceId, Device_TAG, or OPC_ItemPrefix.
+
+        Prefer DeviceId exact match. TAG matching is limited to rows whose DeviceId
+        is empty or equals the TAG (legacy OPC-only), so SILworX DeviceIds sharing
+        that TAG are not flipped by a TAG-only OPC refresh.
+        """
         present = {str(tag) for tag in tags if tag}
         with self.cursor() as cur:
             cur.execute("UPDATE DeviceProoftestResultList SET PresentOnOpc=0")
             for tag in present:
                 cur.execute(
+                    "UPDATE DeviceProoftestResultList SET PresentOnOpc=1 WHERE DeviceId=?",
+                    (tag,),
+                )
+                cur.execute(
                     "UPDATE DeviceProoftestResultList SET PresentOnOpc=1 "
-                    "WHERE DeviceId=? OR Device_TAG=? OR OPC_ItemPrefix=?",
-                    (tag, tag, tag),
+                    "WHERE OPC_ItemPrefix=?",
+                    (tag,),
+                )
+                cur.execute(
+                    "UPDATE DeviceProoftestResultList SET PresentOnOpc=1 "
+                    "WHERE Device_TAG=? AND (DeviceId='' OR DeviceId IS NULL OR DeviceId=?)",
+                    (tag, tag),
                 )
 
     def _prooftest_table_names(self) -> List[str]:
@@ -1163,6 +1175,21 @@ class Database:
             else:
                 active = device_id in present
             with self.cursor() as cur:
+                if not device_id:
+                    # Avoid WHERE DeviceId='' flipping every orphan row at once.
+                    if active:
+                        cur.execute(
+                            "UPDATE DeviceProoftestResultList SET IsActive=1 "
+                            "WHERE (DeviceId='' OR DeviceId IS NULL) AND Device_TAG=?",
+                            (tag,),
+                        )
+                    else:
+                        cur.execute(
+                            "UPDATE DeviceProoftestResultList SET IsActive=0 "
+                            "WHERE (DeviceId='' OR DeviceId IS NULL) AND Device_TAG=?",
+                            (tag,),
+                        )
+                    continue
                 if active:
                     cur.execute(
                         "UPDATE DeviceProoftestResultList SET IsActive=1 WHERE DeviceId=?",

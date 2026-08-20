@@ -300,15 +300,20 @@ class CatalogService:
         if getattr(host, "_stopped", False) or (stop is not None and stop.is_set()):
             return {}
 
+        api_rows = any(
+            bool(getattr(d, "project", None) or getattr(d, "configuration", None))
+            for d in devices
+        )
         api_attached = False
         try:
             api_attached = bool(self.silworx.is_attached())
         except Exception:
             api_attached = False
+        api_ok = api_attached or api_rows
         opc_ok = bool(getattr(host, "_opc_servers", None))
-        if api_attached and opc_ok:
+        if api_ok and opc_ok:
             device_source = "api+opc"
-        elif api_attached:
+        elif api_ok:
             device_source = "api"
         else:
             device_source = "opc_fallback"

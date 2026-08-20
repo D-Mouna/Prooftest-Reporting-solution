@@ -60,6 +60,24 @@ class OpcManagerAdapter:
             return list(self._opc.list_all_tags(server) or [])
         return []
 
+    def list_tags_all_servers(self, servers: Optional[list[str]] = None) -> dict[str, list[str]]:
+        """Browse ProofTest tags into cache for every server (used by bind_opc_paths)."""
+        if hasattr(self._opc, "list_tags_all_servers"):
+            raw = self._opc.list_tags_all_servers(servers)
+            return {str(srv): list(tags or []) for srv, tags in (raw or {}).items()}
+        out: dict[str, list[str]] = {}
+        for server in servers or self.discover_servers():
+            out[str(server)] = self.list_tags(str(server))
+        return out
+
+    def invalidate_tag_cache(self) -> None:
+        inval = getattr(self._opc, "invalidate_tag_cache", None)
+        if callable(inval):
+            inval()
+            return
+        if hasattr(self._opc, "invalidate_cache"):
+            self._opc.invalidate_cache()
+
     def find_running_path(self, server: str, device_tag: str) -> Optional[str]:
         if hasattr(self._opc, "find_running_path"):
             return self._opc.find_running_path(server, device_tag)
