@@ -1,3 +1,5 @@
+"""Production poll host — thin shell over Application LiveTestService (Gap C)."""
+
 from __future__ import annotations
 
 import queue
@@ -21,12 +23,21 @@ log = __import__("logging").getLogger(__name__)
 
 
 class ProoftestMonitor:
+    """
+    Thin production host for LiveTestService.
+
+    Owns OPC snapshot collection + report worker. Edge detection / complete path
+    is always ``LiveTestService`` (injected from ApplicationFacade when available).
+    """
+
     def __init__(
         self,
         config: AppConfig,
         db: Database,
         opc: OpcManager,
         structures: Dict[str, ResultsStructure],
+        *,
+        live_service: Optional[LiveTestService] = None,
     ) -> None:
         self.config = config
         self.db = db
@@ -37,14 +48,24 @@ class ProoftestMonitor:
         self._stop = threading.Event()
         self._store = DatabaseStoreAdapter(db, structures)
         self._reports = AnnexReportAdapter(config, db, self._store)
-        self._live = LiveTestService(
-            OpcManagerAdapter(opc, structures_fn=lambda: self.structures),
-            self._store,
-            self._reports,
-            AlarmManagerAdapter(db.alarms),
-            snapshot_fn=self._collect_snapshot,
-            defer_complete=True,
-        )
+        if live_service is not None:
+            self._live = live_service
+            self._live.snapshot_fn = self._collect_snapshot
+            self._live.defer_complete = True
+            # Keep ports consistent with production adapters when facade used different instances.
+            self._live.opc = OpcManagerAdapter(opc, structures_fn=lambda: self.structures)
+            self._live.store = self._store
+            self._live.reports = self._reports
+            self._live.alarms = AlarmManagerAdapter(db.alarms)
+        else:
+            self._live = LiveTestService(
+                OpcManagerAdapter(opc, structures_fn=lambda: self.structures),
+                self._store,
+                self._reports,
+                AlarmManagerAdapter(db.alarms),
+                snapshot_fn=self._collect_snapshot,
+                defer_complete=True,
+            )
         self._worker = threading.Thread(target=self._report_worker, daemon=True, name="report-worker")
         self._worker.start()
 
@@ -57,21 +78,27 @@ class ProoftestMonitor:
             log.warning("Report worker did not stop within %.0fs", timeout)
 
     def poll_devices(self) -> None:
-        devices = self.db.list_active_devices()
-        for row in devices:
+        """Production poll entry — delegates entirely to LiveTestService.poll_once."""
+        rows = self.db.list_active_devices()
+        devices: List[Device] = []
+        for row in rows:
             try:
-                self._poll_one(row)
+                devices.append(device_from_row(row) if isinstance(row, dict) else row)
             except Exception as exc:
                 self.db.alarms.raise_alarm(
                     "S4",
-                    f"OPC read failed for {row.get('device_tag')}",
-                    device_tag=row.get("device_tag"),
+                    f"Device row map failed for {getattr(row, 'get', lambda *_: None)('device_tag')}",
+                    device_tag=(row.get("device_tag") if isinstance(row, dict) else None),
                     cause=str(exc),
                     show_popup=False,
                     action="PollOnce",
                 )
+        self._live.poll_once(devices)
+        while self._live.queue:
+            self._queue.put(self._live.queue.pop(0))
 
     def _poll_one(self, device: Union[Dict[str, Any], Device]) -> None:
+        """Compatibility for older callers — prefer poll_devices."""
         if isinstance(device, dict):
             device = device_from_row(device)
         self._live.seed_device(device)
@@ -80,6 +107,8 @@ class ProoftestMonitor:
             self._queue.put(self._live.queue.pop(0))
 
     def _collect_snapshot(self, device: Device) -> tuple[Dict[str, Any], List[str]]:
+        if not (device.results_type or "").strip():
+            return {}, ["Results type unknown — snapshot skipped"]
         structure = self.structures.get(device.results_type)
         if not structure:
             return {}, ["No Results structure"]
@@ -163,3 +192,7 @@ class ProoftestMonitor:
     @property
     def queue_depth(self) -> int:
         return self._queue.qsize() + self._live.queue_depth
+
+    @property
+    def live(self) -> LiveTestService:
+        return self._live

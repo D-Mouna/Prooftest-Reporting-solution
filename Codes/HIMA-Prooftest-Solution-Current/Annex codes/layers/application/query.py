@@ -1,4 +1,4 @@
-"""QueryService — Presentation calls this, never OPC/SILworX adapters."""
+"""QueryService — Presentation calls this, never OPC/SILworX/annex adapters."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 from layers.application.errors import STEP_GUI
 from layers.domain.device import sort_device_dicts
-from layers.ports import AlarmPort, ReportPort, StorePort
+from layers.ports import AlarmPort, ArchivePort, ReportPort, StorePort
 
 
 class QueryService:
@@ -18,11 +18,13 @@ class QueryService:
         alarms: AlarmPort,
         *,
         host: Any = None,
+        archives: Optional[ArchivePort] = None,
     ) -> None:
         self.store = store
         self.reports = reports
         self.alarms = alarms
         self._host = host
+        self.archives = archives
 
     def list_devices(self, view: str = "all") -> list[dict]:
         try:
@@ -38,6 +40,9 @@ class QueryService:
             row.setdefault("opc_item_prefix", row.get("opc_item_prefix") or "")
             row.setdefault("present_on_opc", bool(row.get("present_on_opc")))
             row.setdefault("test_in_progress", bool(row.get("test_in_progress")))
+            # R7: empty Results_Type → explicit "unknown" for GUI consumers
+            if not str(row.get("results_type") or "").strip():
+                row["results_type"] = "unknown"
         return sort_device_dicts(rows)
 
     def list_reports(
@@ -142,31 +147,29 @@ class QueryService:
         return 200, str(file_path)
 
     def list_archives(self) -> list:
-        if self._host is None:
+        if self.archives is None:
             return []
-        from prooftest.annex_list_archive import list_list_archives
-
         try:
-            return list_list_archives(self._host.config)
+            return list(self.archives.list_archives() or [])
         except Exception:
             return []
 
     def create_archive(self) -> dict:
-        from prooftest.annex_list_archive import create_list_archive
-
-        return create_list_archive(self._host.db, self._host.config)
+        if self.archives is None:
+            raise RuntimeError("Archive port not configured")
+        return self.archives.create_archive()
 
     def restore_archive(self, archive_id: str) -> dict:
-        from prooftest.annex_list_archive import restore_list_archive
-
-        return restore_list_archive(self._host.db, self._host.config, archive_id)
+        if self.archives is None:
+            raise RuntimeError("Archive port not configured")
+        return self.archives.restore_archive(archive_id)
 
     def restore_archive_upload(self, path: Path, filename: str) -> dict:
-        from prooftest.annex_list_archive import restore_from_uploaded_file
-
-        return restore_from_uploaded_file(self._host.db, self._host.config, path, filename)
+        if self.archives is None:
+            raise RuntimeError("Archive port not configured")
+        return self.archives.restore_archive_upload(path, filename)
 
     def clear_keep_opc_only(self, *, archive_first: bool = True) -> dict:
-        from prooftest.annex_list_archive import clear_keep_opc_only
-
-        return clear_keep_opc_only(self._host.db, self._host.config, archive_first=archive_first)
+        if self.archives is None:
+            raise RuntimeError("Archive port not configured")
+        return self.archives.clear_keep_opc_only(archive_first=archive_first)

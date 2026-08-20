@@ -4,7 +4,7 @@
 |-------|--------|
 | **Document** | Cumulative change log for solution **code** archives |
 | **Active tree** | [HIMA-Prooftest-Solution-Current](./HIMA-Prooftest-Solution-Current/) |
-| **Current `VERSION.json`** | **1.75** (SPEC 1.64) |
+| **Current `VERSION.json`** | **1.77** (SPEC 1.64) |
 | **Paired spec** | [SPEC-001-v1.64-...](../Specifications/SPEC-001-v1.64-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) |
 | **Location** | `C:\Users\Administrator\Documents\Report Solution\Codes` |
 | **Filename** | `Code History of Modifications.md` |
@@ -27,6 +27,9 @@
 
 | Code / archive | Date | Summary |
 |----------------|------|---------|
+| **Current → 1.77** | 2026-08-20 | R1–R7: ArchivePort, HTML seed order, db_name validation, auth/bind guard, UI unknown type + Connect titles; fastapi/starlette bump; 54/54 |
+| **Current → 1.76** | 2026-08-20 | Gaps A/B/C: shaped OPC discover, CatalogService refresh brain, LiveTestService-only poll; T1–T24 |
+| Archive v1.75 | 2026-08-20 | Snapshot before A/B/C cutover (optional; audit 1.75 was last archived as 1.74) |
 | **Current → 1.75** | 2026-08-20 | Audit cleanup + docs pack; remove dual refresh writer; UI badge/sort |
 | Archive v1.74 | 2026-08-20 | Snapshot before audit cleanup |
 | **Current → 1.74** | 2026-08-20 | 100% Presentation→Application; RefreshCatalog in CatalogService |
@@ -105,6 +108,18 @@
 ---
 
 ## Collected modifications (newest first)
+
+### Version 1.77 (2026-08-20)
+
+**Paired SPEC:** v1.64.
+
+R1–R7 hygiene after Gaps A/B/C: `ArchivePort` + `AnnexListArchiveAdapter` (QueryService no annex import); `resolve_html_templates_seed` prefers Documents over Z; `validate_sql_database_name`; `require_auth_when_non_local` / `auth_bind_warning`; UI unknown-type placeholder and Connect/Disconnect this-tool-only titles; `SilworxSyncTriggers` / `sync_device_list_via_api` aliases; pin `fastapi==0.141.1` + `starlette==1.3.1` (pip-audit clean); layer tests **54/54**.
+
+### Version 1.76 (2026-08-20)
+
+**Paired SPEC:** v1.64.
+
+Finish unified cutover Gaps A/B/C: shaped OPC-only discover (`opc_discover.py`, no invent-as-identity); `CatalogService.run_station_refresh` uses domain refresh (step03 sync is test shim); production poll = `LiveTestService` via thin `ProoftestMonitor`; edge tests T1–T24; docs + security refresh; `python-multipart` → 0.0.31.
 
 ### Version 1.75 (2026-08-20)
 

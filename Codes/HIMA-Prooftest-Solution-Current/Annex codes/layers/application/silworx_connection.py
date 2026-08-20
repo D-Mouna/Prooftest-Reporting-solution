@@ -46,7 +46,7 @@ class SilworxConnectionService:
         except Exception as exc:
             self.alarms.raise_alarm(STEP_S7, "ResumeSilworXconnection", str(exc))
             return {"silworx": "not connected", "status": "auth_or_cert_error"}
-        if not attached or not self.silworx.has_open_project():
+        if not self.silworx.has_open_project():
             self.alarms.raise_alarm(
                 STEP_S7,
                 "ResumeSilworXconnection",
@@ -58,4 +58,16 @@ class SilworxConnectionService:
             self._refresh()
         except Exception as exc:
             self.alarms.raise_alarm(STEP_S7, "ResumeSilworXconnection", str(exc))
+        # Re-check after refresh — attach + catalog discovery may complete the session bind.
+        if not self.silworx.is_attached():
+            self.alarms.raise_alarm(
+                STEP_S7,
+                "ResumeSilworXconnection",
+                "SILworX project is open but API/plugin attach failed",
+                severity="Warning",
+            )
+            return {
+                "silworx": "not connected",
+                "status": "attach_failed",
+            }
         return {"silworx": "running", "status": "attached"}

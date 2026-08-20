@@ -269,11 +269,14 @@ class AppConfig:
     report_filename_pattern: str = "{Device_TAG}_{DateTime:yyyy-MM-dd_HH-mm-ss}"
     report_decimal_places: int = 3
     report_html_templates: Path = field(default_factory=default_report_templates)
+    report_html_seed: Path | None = None
     web_host: str = "127.0.0.1"
     web_port: int = 8080
     web_auth_enabled: bool = False
     web_auth_token: str = ""
     web_localhost_bypass: bool = True
+    require_auth_when_non_local: bool = True
+    auth_bind_warning: bool = False
     ini_path: Path = field(default_factory=_default_ini)
 
     @classmethod
@@ -393,6 +396,9 @@ class AppConfig:
                 cfg.report_html_templates = Path(templates)
             else:
                 cfg.report_html_templates = default_report_templates()
+            seed = parser.get("Reports", "html_templates_seed", fallback="").strip()
+            if seed:
+                cfg.report_html_seed = Path(seed)
 
         if parser.has_section("Web"):
             cfg.web_host = parser.get("Web", "host", fallback=cfg.web_host)
@@ -400,11 +406,15 @@ class AppConfig:
             cfg.web_auth_enabled = parser.getboolean("Web", "auth_enabled", fallback=False)
             cfg.web_auth_token = parser.get("Web", "auth_token", fallback="").strip()
             cfg.web_localhost_bypass = parser.getboolean("Web", "auth_localhost_bypass", fallback=True)
+            cfg.require_auth_when_non_local = parser.getboolean(
+                "Web", "require_auth_when_non_local", fallback=True
+            )
             if cfg.web_auth_enabled and not cfg.web_auth_token:
                 log = logging.getLogger(__name__)
                 log.warning("Web auth_enabled=true but auth_token empty — authentication disabled")
                 cfg.web_auth_enabled = False
 
+        cfg.apply_auth_bind_policy()
         cfg.normalize_report_paths()
         if not cfg.sqlite_path.is_absolute():
             cfg.sqlite_path = (_solution_root() / cfg.sqlite_path).resolve()
@@ -416,6 +426,26 @@ class AppConfig:
         )
         ensure_results_structures_catalogue(cfg.results_structures)
         return cfg
+
+    def is_loopback_web_host(self) -> bool:
+        host = (self.web_host or "").strip().lower()
+        return host in ("127.0.0.1", "::1", "localhost")
+
+    def apply_auth_bind_policy(self) -> None:
+        """R4: warn or refuse non-loopback bind without auth."""
+        log = logging.getLogger(__name__)
+        self.auth_bind_warning = False
+        if self.is_loopback_web_host() or self.web_auth_enabled:
+            return
+        msg = (
+            f"web_host={self.web_host!r} is not loopback and web_auth_enabled=false — "
+            "enable [Web] auth_enabled=true + auth_token, or bind 127.0.0.1"
+        )
+        self.auth_bind_warning = True
+        if self.require_auth_when_non_local:
+            log.error("SECURITY: %s (require_auth_when_non_local=true)", msg)
+            raise ValueError(msg)
+        log.warning("SECURITY: %s", msg)
 
     def normalize_report_paths(self) -> None:
         """Ensure report output defaults to the station reports folder on C:\\."""

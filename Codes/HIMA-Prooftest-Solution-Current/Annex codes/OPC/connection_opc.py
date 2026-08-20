@@ -316,6 +316,8 @@ class XOpcDaClient:
 
         def _do_list():
             opc = self._opc
+            if opc is None:
+                raise RuntimeError("Not connected")
             try:
                 tags = opc.list(browse_path, recursive=True, flat=True)
             except TypeError:
@@ -335,7 +337,10 @@ class XOpcDaClient:
             raise RuntimeError("Not connected")
 
         def _do_read():
-            result = self._opc.read(tag)
+            opc = self._opc
+            if opc is None:
+                raise RuntimeError("Not connected")
+            result = opc.read(tag)
             return _parse_read_result(tag, result)
 
         return retry("OPC read", _do_read)
@@ -348,7 +353,10 @@ class XOpcDaClient:
             return []
 
         def _do_read():
-            raw = self._opc.read(list(tags))
+            opc = self._opc
+            if opc is None:
+                raise RuntimeError("Not connected")
+            raw = opc.read(list(tags))
             return _parse_multi_read(tags, raw)
 
         return retry("OPC read (batch)", _do_read)

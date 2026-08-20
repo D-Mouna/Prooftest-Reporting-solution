@@ -106,18 +106,56 @@ def is_silworx_open(programdata_root: Path) -> bool:
 def pick_configured_session(
     sessions: List[SilworxOpenProject],
     configured_projects: List[Path],
+    *,
+    preferred_version_substr: str = "",
 ) -> Optional[SilworxOpenProject]:
+    """
+    Choose which open SILworX session is "active" for UI/state.
+
+    Preference order:
+      1. Exact configured project path match
+      2. Configured project stem / filename fuzzy match (e.g. V16 suffix)
+      3. Session whose SILworX version matches a live API instance version
+      4. First open session
+    """
     if not sessions:
         return None
-    if not configured_projects:
-        return sessions[0]
-    configured = {p.resolve() for p in configured_projects}
-    for session in sessions:
+
+    def _norm(path: Path) -> str:
         try:
-            if session.src_path.resolve() in configured:
-                return session
+            return str(path.resolve()).lower()
         except OSError:
-            continue
+            return str(path).lower()
+
+    configured = {_norm(p) for p in configured_projects}
+    if configured:
+        for session in sessions:
+            try:
+                if _norm(session.src_path) in configured:
+                    return session
+            except OSError:
+                continue
+        # Fuzzy: configured "ProofTest-Reporting solution.E3" vs open "... - V16.0.0.E3"
+        for configured_path in configured_projects:
+            stem = configured_path.stem.lower().replace(" ", "")
+            name = configured_path.name.lower()
+            for session in sessions:
+                src_name = session.src_path.name.lower()
+                src_stem = session.src_path.stem.lower().replace(" ", "")
+                file_name = (session.project_file or "").lower()
+                if name and (name in src_name or name in file_name):
+                    return session
+                if stem and stem in src_stem.replace("-", ""):
+                    return session
+                if stem and stem in (session.project_name or "").lower().replace(" ", ""):
+                    return session
+
+    if preferred_version_substr:
+        token = preferred_version_substr.lower().strip()
+        for session in sessions:
+            if token and token in (session.silworx_version or "").lower():
+                return session
+
     return sessions[0]
 
 
@@ -207,7 +245,8 @@ def silworx_session_to_state(session: Optional[SilworxOpenProject]) -> Dict[str,
 
 
 @dataclass
-class Case1SyncTriggers:
+class SilworxSyncTriggers:
+    """Unified SILworX API/plugin sync (formerly Case1SyncTriggers)."""
     config: AppConfig
     markers_dir: Path
     active_session: Optional[SilworxOpenProject] = None
@@ -589,9 +628,15 @@ class Case1SyncTriggers:
     def refresh_open_sessions(self) -> List[SilworxOpenProject]:
         """All SILworX sessions with an open project (lock.ini), any instance."""
         self.open_sessions = discover_open_projects(self.config.silworx_programdata)
+        preferred_version = ""
+        for inst in self._available_instances or []:
+            preferred_version = str(getattr(inst, "silworx_version", "") or "")
+            if preferred_version:
+                break
         self.active_session = pick_configured_session(
             self.open_sessions,
             self.config.silworx_projects,
+            preferred_version_substr=preferred_version,
         )
         return self.open_sessions
 
@@ -746,11 +791,14 @@ class Case1SyncTriggers:
         self.release_api_connection()
 
 
+# Deprecated alias — leftover UNIFIED naming (not a Case 1 product mode).
+Case1SyncTriggers = SilworxSyncTriggers
+
+
 def run_background_sync_iteration(service, now: float) -> None:
     """Run one Step 7 background synchronization iteration (unified path)."""
     from prooftest.results_csv import load_all_structures
     from prooftest.step01_setup import is_silworx_installed
-    from prooftest.step03_device_list import sync_device_list_case1_via_api
 
     # G-11: SILworX gone — release blockers once; keep running; OPC device list below.
     if not is_silworx_installed(service.config.silworx_programdata):
@@ -796,25 +844,29 @@ def run_background_sync_iteration(service, now: float) -> None:
                     service.db.set_service_state("silworx_api_connected", "0")
                 service._case1_sync._silworx_api_suspended = True
 
-        # Keep updating the device list: API and OPC still run together (API no-ops if down).
+        # Keep updating the device list via Application RefreshCatalog (not step03 brain).
+        # Also retry when API/plugin is up but this tool is not yet attached (initial
+        # refresh often races the plugin WebSocket and would otherwise stay on OPC forever).
         api_unavailable = service._case1_sync.is_api_suspended() or not silworx_running
-        if api_unavailable and not service._stop.is_set():
+        need_api_attach = (
+            silworx_running
+            and not api_unavailable
+            and silworx_open
+            and not service._case1_sync.is_tool_attached()
+        )
+        if (api_unavailable or need_api_attach) and not service._stop.is_set():
             if now - service._last_device_sync >= service.config.device_list_poll_sec:
                 try:
-                    _active, source = sync_device_list_case1_via_api(
-                        service.config,
-                        service.db,
-                        service.structures,
-                        service._case1_sync,
-                        service.opc,
-                    )
-                    service.db.set_service_state("device_list_source", source)
+                    if getattr(service, "app", None) is not None:
+                        service.app.refresh_catalog()
+                    else:
+                        service.refresh(manual=False)
                     service.db.set_service_state(
                         "last_opc_device_scan",
                         time.strftime("%Y-%m-%d %H:%M:%S"),
                     )
                 except Exception as exc:
-                    log.warning("Parallel device-list scan while API unavailable failed: %s", exc)
+                    log.warning("Device-list refresh failed: %s", exc)
                 service._last_device_sync = now
 
         # G-20: kill leftover c3.exe only after confirmed SILworX close (lock.ini / GUI gone).
@@ -892,5 +944,8 @@ def run_background_sync_iteration(service, now: float) -> None:
                         len(service.structures),
                     )
             if "silworx_session" in triggers or "code_generation" in triggers:
-                service.opc.invalidate_cache()
+                try:
+                    service.opc.invalidate_tag_cache()
+                except Exception:
+                    service.opc.invalidate_cache()
             service.refresh(manual=False)

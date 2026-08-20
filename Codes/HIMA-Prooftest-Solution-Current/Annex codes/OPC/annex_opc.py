@@ -93,18 +93,32 @@ class OpcManager:
         return False
 
     def discover_servers(self) -> List[str]:
+        log.info("OPC discover_servers: enumerating localhost")
         opc_mod = _load_connection_opc()
         OpenOPC = opc_mod._import_openopc()
         opc = OpenOPC.client()
         try:
-            names = opc.servers("localhost")
+            names = list(opc.servers("localhost") or [])
+        except Exception as exc:
+            log.exception("OPC discover_servers failed: %s", exc)
+            names = []
         finally:
-            opc.close()
+            try:
+                opc.close()
+            except Exception:
+                pass
         matched = [n for n in names if self._match_server(n)]
+        log.info(
+            "OPC discover_servers: raw=%d matched=%d (%s)",
+            len(names),
+            len(matched),
+            ", ".join(matched[:8]) + ("..." if len(matched) > 8 else ""),
+        )
         if not matched:
             discovered = opc_mod.discover_opc_server()
             if discovered:
                 matched = [discovered]
+                log.info("OPC discover_servers: fallback ProgID %s", discovered)
         self._last_servers = sorted(matched)
         return self._last_servers
 
@@ -223,8 +237,15 @@ class OpcManager:
                     )
         return None
 
+    def invalidate_tag_cache(self) -> None:
+        """Drop browsed tag lists so the next refresh re-browses (keep live clients)."""
+        with self._lock:
+            self._tags_cache.clear()
+
     def invalidate_cache(self) -> None:
         # Timed acquire so service Stop cannot hang forever while OPC poll holds the lock.
+        # Full disconnect is for Stop/shutdown only — Refresh must use invalidate_tag_cache()
+        # or poll threads race COM (RemoveGroup / NoneType.read / UI deadlock).
         acquired = self._lock.acquire(timeout=3.0)
         if not acquired:
             log.warning("OPC invalidate_cache skipped — lock busy (shutdown continues)")
@@ -301,13 +322,19 @@ class OpcManager:
             return best
 
     def find_running_path(self, server: str, device_tag: str) -> Optional[str]:
-        """Construct OTS ProofTest.{TAG}.Running then OPC ProofTest.{TAG}.Running from cache."""
+        """Return OTS/OPC ProofTest.{TAG}.Running when present on ``server``."""
         tags: List[str] = []
         with self._lock:
             for key, cached in self._tags_cache.items():
                 if key.split("|", 1)[0] == server:
                     tags = list(cached)
                     break
+        if not tags:
+            try:
+                tags = self.list_all_tags(server)
+            except Exception as exc:
+                log.debug("find_running_path browse %s failed: %s", server, exc)
+                tags = []
         for branch in ("OTS ProofTest", "OPC ProofTest"):
             item = f"{branch}.{device_tag}.Running"
             if item in tags:

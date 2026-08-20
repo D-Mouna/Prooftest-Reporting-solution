@@ -113,6 +113,28 @@ class LiveTestService:
             )
 
     def on_test_ended(self, device: Device, running_id: str) -> None:
+        # T18: unknown / empty Results type — no ProofTest_* snapshot write.
+        if not (device.results_type or "").strip():
+            device.test_in_progress = False
+            device.last_running = False
+            try:
+                self.store.upsert_device(device)
+            except Exception:
+                pass
+            try:
+                self.store.finish_test(device.device_tag, "skipped_unknown_type")
+            except Exception:
+                pass
+            self.alarms.raise_alarm(
+                STEP_S5,
+                "OnTestEnded",
+                "Skipped ProofTest snapshot — Results type unknown",
+                device_tag=device.device_tag,
+                severity="Warning",
+            )
+            self.detector.confirm_ended(device.device_id.key(), False)
+            return
+
         snapshot: dict
         notes: list[str]
         if self.snapshot_fn is not None:

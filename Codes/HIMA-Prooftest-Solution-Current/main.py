@@ -49,6 +49,13 @@ def main() -> int:
     config = AppConfig.load(args.config)
     host = args.host or config.web_host
     port = args.port or config.web_port
+    # Re-evaluate bind policy for CLI --host override
+    config.web_host = host
+    try:
+        config.apply_auth_bind_policy()
+    except ValueError as exc:
+        log.error("%s", exc)
+        return 2
 
     service = ProoftestService(config)
     service.start()
@@ -75,6 +82,11 @@ def main() -> int:
     if hasattr(signal, "SIGBREAK"):
         signal.signal(signal.SIGBREAK, _signal_handler)
 
+    if config.auth_bind_warning:
+        log.warning(
+            "SECURITY: non-loopback bind without auth (require_auth_when_non_local=false) — "
+            "enable auth before exposing on the LAN"
+        )
     log.info("Web UI: http://%s:%s/", host, port)
     log.info("Engine stop (UI stays up): POST http://%s:%s/api/stop (localhost only)", host, port)
     log.info("Process exit (G-11): POST http://%s:%s/api/shutdown (localhost only)", host, port)

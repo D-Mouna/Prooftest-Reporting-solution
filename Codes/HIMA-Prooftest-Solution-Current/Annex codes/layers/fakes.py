@@ -50,6 +50,10 @@ class FakeSilworx:
         self.list_calls += 1
         if self.list_error:
             raise self.list_error
+        # Mirror production: discovery only contributes while this tool is attached
+        # (or immediately during attach). After Disconnect, stay silent.
+        if not self.attached:
+            return []
         return [i for i in self.identities if i.results_type in known_types or not known_types]
 
 
@@ -102,7 +106,13 @@ class FakeOpc:
             return self.running[item_id]
         return self.running.get(tag, (False, "Good"))
 
-    def discover_opc_only(self, known_types: set[str]) -> list[OpcObservation]:
+    def discover_opc_only(
+        self,
+        known_types: set[str],
+        *,
+        last_types_by_tag: Optional[dict[str, str]] = None,
+    ) -> list[OpcObservation]:
+        del known_types, last_types_by_tag
         return list(self.opc_only)
 
 
@@ -239,3 +249,37 @@ class FakeReports:
 
     def resolve_open_path(self, path: str) -> Optional[str]:
         return path
+
+
+class FakeArchive:
+    def __init__(self) -> None:
+        self.archives: list[dict] = []
+        self.created = 0
+        self.keep_opc = False
+        self.clear_calls = 0
+
+    def list_archives(self) -> list[dict]:
+        return list(self.archives)
+
+    def create_archive(self) -> dict:
+        self.created += 1
+        item = {"archive_id": f"list-archive-20260101-{self.created:06d}", "device_count": 0}
+        self.archives.insert(0, item)
+        return item
+
+    def restore_archive(self, archive_id: str) -> dict:
+        self.keep_opc = False
+        return {"archive_id": archive_id, "restored": True}
+
+    def restore_archive_upload(self, path: object, filename: str) -> dict:
+        return {"filename": filename, "restored": True}
+
+    def clear_keep_opc_only(self, *, archive_first: bool = True) -> dict:
+        self.clear_calls += 1
+        if archive_first:
+            self.create_archive()
+        self.keep_opc = True
+        return {"keep_opc_only": True, "archive_first": archive_first}
+
+    def keep_opc_only_enabled(self) -> bool:
+        return self.keep_opc
