@@ -123,6 +123,13 @@ class ProoftestService:
                 return
             self._stop.clear()
 
+        start_timeout_sec = 120.0
+        watchdog = threading.Timer(
+            start_timeout_sec,
+            lambda: self._start_watchdog_fire(token, start_timeout_sec),
+        )
+        watchdog.daemon = True
+        watchdog.start()
         try:
             completed = self._start_engine_body(token)
         except Exception:
@@ -133,8 +140,11 @@ class ProoftestService:
                     self._stopped = True
                     self._stop.set()
             raise
+        finally:
+            watchdog.cancel()
         with self._engine_lock:
             if token != self._start_token:
+                # A newer Start/Stop owns the flag — do not clear _starting for them.
                 log.info("Prooftest engine start aborted by Stop (token superseded)")
                 return
             self._starting = False
@@ -143,6 +153,19 @@ class ProoftestService:
                 log.info("Prooftest engine start aborted by Stop")
                 return
         log.info("Prooftest engine started")
+
+    def _start_watchdog_fire(self, token: int, timeout_sec: float) -> None:
+        with self._engine_lock:
+            if token != self._start_token or not self._starting:
+                return
+            self._starting = False
+            self._stopped = True
+            self._stop.set()
+        log.error(
+            "Engine start watchdog: still starting after %.0fs (token=%s) — clearing stuck flag",
+            timeout_sec,
+            token,
+        )
 
     def _wait_for_stop_before_start(self, token: int, timeout_sec: float = 45.0) -> bool:
         """Do not run a new engine body until graceful shutdown has released OPC/DB."""
@@ -178,17 +201,23 @@ class ProoftestService:
 
     def _start_engine_body(self, token: int) -> bool:
         """Heavy start work. Returns False if Stop cancelled this start."""
+        def _stage(msg: str) -> None:
+            log.info("Engine start [%s]: %s", token, msg)
+
         if self._start_aborted(token):
             return False
+        _stage("ensure_data_dirs")
         self.config.ensure_data_dirs()
+        _stage("ensure_first_run")
         ensure_first_run(self.config, self.alarms)
         if self._start_aborted(token):
             return False
-        log.info("Engine start: connecting database")
+        _stage("connecting database")
         self.db.connect()
         self.alarms.set_persist_callback(self._persist_alarm)
-        log.info("Engine start: loading Results Structures")
+        _stage("loading Results Structures")
         self.structures = load_all_structures(self.config.results_structures)
+        _stage(f"structures loaded ({len(self.structures)})")
         self._build_application()
         sync_results_type_folders_from_catalogue(
             self.config, self.alarms, list(self.structures.keys())
@@ -203,7 +232,9 @@ class ProoftestService:
         # G-05 / Step 1.3: create DB under station Database folder and all
         # ProofTest_* tables from Results Structure CSVs (baseline nine + any new types).
         try:
+            _stage("sync_schema_case2")
             self.db.sync_schema_case2(self.config.sql_templates, self.structures)
+            _stage("sync_schema_case2 done")
         except Exception as exc:
             log.exception("Initial SQL schema sync failed: %s", exc)
             self.alarms.raise_alarm(
@@ -220,11 +251,18 @@ class ProoftestService:
                 self.monitor.shutdown()
             except Exception:
                 pass
-        self.monitor = ProoftestMonitor(self.config, self.db, self.opc, self.structures)
+        _stage("create ProoftestMonitor")
+        self.monitor = ProoftestMonitor(
+            self.config,
+            self.db,
+            self.opc,
+            self.structures,
+            live_service=getattr(self.app, "live", None) if self.app else None,
+        )
         if self._start_aborted(token):
             return False
         # Always start plugin monitor when possible — no-ops harmlessly if SILworX absent.
-        log.info("Engine start: starting plugin monitor")
+        _stage("starting plugin monitor")
         self._case1_sync.prepare_for_engine_start()
         self._case1_sync.start_monitor()
         if self._start_aborted(token):
@@ -266,7 +304,7 @@ class ProoftestService:
             self.db.set_service_state("stop_reason", "")
         except Exception:
             pass
-        log.info("Prooftest engine loops started — refreshing device list in background")
+        _stage("loops up — scheduling initial device-list refresh")
         threading.Thread(
             target=self._initial_refresh_async,
             args=(token,),
@@ -279,7 +317,8 @@ class ProoftestService:
         if self._start_aborted(token):
             return
         try:
-            self.refresh(manual=True)
+            # First catalog build — keep live OPC clients; no full invalidate.
+            self.refresh(manual=False)
             log.info("Initial device-list refresh finished")
         except Exception:
             log.exception("Initial device-list refresh failed")
@@ -566,6 +605,9 @@ class ProoftestService:
             payload["opc_count"] = len(self._opc_servers)
         payload["device_count"] = int(payload.get("active_devices") or 0)
         payload["silworx_status"] = self._silworx_badge() if engine != "stopped" else "not connected"
+        payload["web_auth_required"] = bool(self.config.web_auth_enabled)
+        payload["auth_bind_warning"] = bool(getattr(self.config, "auth_bind_warning", False))
+        payload["web_host"] = str(self.config.web_host)
         try:
             payload["last_error"] = self.alarms.last_error()
         except Exception:

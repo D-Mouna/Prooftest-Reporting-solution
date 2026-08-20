@@ -195,7 +195,11 @@ Optional extra (not engine): `silworx: not connected | running` = **our** attach
 
 ### `RefreshCatalog()`
 
-**Meaning:** Rebuild **who the devices are** and **where they live on OPC**. Merge on `Device_TAG`. Persist catalog. This is the main catalog use case.
+**Meaning:** Rebuild **who the devices are** (DeviceId + Results_Type) and **where they live on OPC**. Persist catalog. This is the main catalog use case.
+
+**Production path (1.76):** `ApplicationFacade.refresh_catalog` → `CatalogService.run_station_refresh` → domain `refresh_catalog` (ports). Host still does schema / markers / service_state. Does **not** use step03 as the brain.
+
+**When:** StartEngine, manual Refresh, Close/Resume SILworX, background sync.
 
 **When:** End of `StartEngine()`, `POST /api/refresh`, sync loop (project/CSV change), after Close/Resume SILworX.
 
@@ -241,11 +245,11 @@ If not → keep the SILworX device, `present_on_opc = no` (do not poll).
 
 **Meaning:** Build the list **only from OPC** when this tool has **no** SILworX identities (not attached, or no open project). Still does not quit SILworX.
 
-**When:** `RefreshCatalog()` when the SILworX identity list is empty.
+**When:** `RefreshCatalog()` when SILworX is not attached, and for TAGs not in the SILworX identity list.
 
-**Steps:** Browse only branches `OTS ProofTest` and `OPC ProofTest`. Each child **folder that contains `.Running`** is a device. `Device_TAG` = folder name. If SQL already has that TAG, **keep last Results_Type**. Do not CSV-score to invent identity when a type is already stored.
+**Steps:** Browse only branches `OTS ProofTest` and `OPC ProofTest`. Candidate = `{branch}.{TAG}.Running` where TAG has **no** `.` (rejects `SomeFlag.Running` and dotted mid-segments). **Shape gate:** ≥3 members shared with ≥1 known Results type (includes Running) or ignore. **Type:** last SQL type if known; else unique clear best (best≥3 and best−second≥2); else **unknown** — no `ProofTest_*` snapshot until type known.
 
-**Calls:** `OpcPort`, Domain, `StorePort`.
+**Calls:** `OpcPort` browse + `layers.domain.opc_discover` (not invent scorer).
 
 **If skipped:** disconnecting this tool from SILworX leaves an empty catalog even though OPC still has tags.
 
@@ -415,7 +419,10 @@ Fields: `Device_TAG`, `Results_Type`, `configuration`, `resource`, `opc_server`,
 
 ### `merge(silworx_identities, opc_bindings) → catalog`
 
-- Key = `Device_TAG`.  
+- Key = **DeviceId** (Project + Configuration + Resource + Device_TAG), not TAG alone.
+- API wins Results_Type / project fields; OPC wins server / prefix / PresentOnOpc.
+- Same TAG in two projects → two rows.
+- OPC path collision → alarm; one bind kept. 
 - **In both:** one device; type/config from SILworX; path from OPC; `present_on_opc = yes`.  
 - **SILworX only:** keep TAG; `present_on_opc = no`.  
 - **OPC only:** TAG = folder name; type = last stored or unknown until SILworX attach.

@@ -26,6 +26,26 @@ from prooftest.results_csv import (
 )
 # TEMPLATE_MAP defined below
 
+_SQL_DB_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_ ]*$")
+
+
+def validate_sql_database_name(name: str) -> str:
+    """
+    Allow safe SQL identifiers for CREATE DATABASE / USE (R3).
+
+    Letters, digits, underscore, and spaces are allowed (bracket-quoted).
+    Rejects quotes, brackets, semicolons, and path-like names.
+    """
+    text = (name or "").strip()
+    if not text or not _SQL_DB_NAME_RE.fullmatch(text):
+        raise ValueError(
+            f"Invalid SQL database name {name!r}: use letters, digits, underscore, and spaces only "
+            "(must start with a letter or underscore)"
+        )
+    if len(text) > 128:
+        raise ValueError(f"Invalid SQL database name {name!r}: too long")
+    return text
+
 
 class Database:
     def __init__(self, config: AppConfig, alarms: AlarmManager) -> None:
@@ -69,27 +89,27 @@ class Database:
                 return False
             master = pyodbc.connect(conn_str, autocommit=True, timeout=5)
             cur = master.cursor()
-            db_name = self.config.db_name.replace("'", "''")
-            cur.execute(f"SELECT DB_ID(N'{db_name}')")
+            safe_name = validate_sql_database_name(self.config.db_name)
+            cur.execute(f"SELECT DB_ID(N'{safe_name}')")
             row = cur.fetchone()
             exists = row is not None and row[0] is not None
             if not exists:
                 data_dir = Path(self.config.sqlite_path).parent
                 data_dir.mkdir(parents=True, exist_ok=True)
-                safe = re.sub(r"[^A-Za-z0-9_]+", "_", self.config.db_name).strip("_") or "Prooftest"
+                safe = safe_name
                 mdf = str((data_dir / f"{safe}.mdf").resolve())
                 ldf = str((data_dir / f"{safe}_log.ldf").resolve())
                 try:
                     cur.execute(
-                        f"CREATE DATABASE [{self.config.db_name}] ON "
+                        f"CREATE DATABASE [{safe_name}] ON "
                         f"(NAME = N'{safe}', FILENAME = N'{mdf}') "
                         f"LOG ON (NAME = N'{safe}_log', FILENAME = N'{ldf}')"
                     )
                 except Exception:
                     # Fallback: default SQL Server data directory
-                    cur.execute(f"CREATE DATABASE [{self.config.db_name}]")
+                    cur.execute(f"CREATE DATABASE [{safe_name}]")
             master.close()
-            conn_str_db = conn_str.replace("DATABASE=master", f"DATABASE={self.config.db_name}")
+            conn_str_db = conn_str.replace("DATABASE=master", f"DATABASE={safe_name}")
             self._conn = pyodbc.connect(conn_str_db, autocommit=False, timeout=5)
             self.using_sqlite = False
             self._ensure_system_tables()
@@ -837,9 +857,30 @@ class Database:
         with self.cursor() as cur:
             cur.execute("SELECT DeviceId FROM DeviceProoftestResultList WHERE DeviceId=?", (key,))
             exists = cur.fetchone()
+            # Migrate legacy OPC-only rows (empty SilworxProject) onto the SILworX DeviceId.
+            # Do not deactivate other projects that legitimately share the same TAG.
+            if device_tag and silworx_project and not exists:
+                cur.execute(
+                    "SELECT DeviceId, SilworxProject FROM DeviceProoftestResultList "
+                    "WHERE Device_TAG=?",
+                    (device_tag,),
+                )
+                for donor_id, donor_project in cur.fetchall():
+                    donor = str(donor_id or "")
+                    if not donor or donor == key:
+                        continue
+                    if str(donor_project or "").strip():
+                        continue
+                    cur.execute(
+                        "UPDATE DeviceProoftestResultList SET DeviceId=? WHERE DeviceId=?",
+                        (key, donor),
+                    )
+                    exists = (key,)
+                    break
+
             if exists:
-                fields = ["Results_Type=?", "IsActive=1", "LastSeenAt=?", "Device_TAG=?"]
-                params: List[Any] = [results_type, now, device_tag]
+                fields = ["Results_Type=?", "IsActive=1", "LastSeenAt=?", "Device_TAG=?", "DeviceId=?"]
+                params: List[Any] = [results_type, now, device_tag, key]
                 if opc_server is not None:
                     fields.append("OPC_Server=?")
                     params.append(opc_server)
@@ -1042,14 +1083,29 @@ class Database:
             return int(row[0] or 0) if row else 0
 
     def set_present_on_opc(self, tags: Set[str]) -> None:
+        """Mark OPC presence. Keys may be DeviceId, Device_TAG, or OPC_ItemPrefix.
+
+        Prefer DeviceId exact match. TAG matching is limited to rows whose DeviceId
+        is empty or equals the TAG (legacy OPC-only), so SILworX DeviceIds sharing
+        that TAG are not flipped by a TAG-only OPC refresh.
+        """
         present = {str(tag) for tag in tags if tag}
         with self.cursor() as cur:
             cur.execute("UPDATE DeviceProoftestResultList SET PresentOnOpc=0")
             for tag in present:
                 cur.execute(
+                    "UPDATE DeviceProoftestResultList SET PresentOnOpc=1 WHERE DeviceId=?",
+                    (tag,),
+                )
+                cur.execute(
                     "UPDATE DeviceProoftestResultList SET PresentOnOpc=1 "
-                    "WHERE DeviceId=? OR Device_TAG=? OR OPC_ItemPrefix=?",
-                    (tag, tag, tag),
+                    "WHERE OPC_ItemPrefix=?",
+                    (tag,),
+                )
+                cur.execute(
+                    "UPDATE DeviceProoftestResultList SET PresentOnOpc=1 "
+                    "WHERE Device_TAG=? AND (DeviceId='' OR DeviceId IS NULL OR DeviceId=?)",
+                    (tag, tag),
                 )
 
     def _prooftest_table_names(self) -> List[str]:
@@ -1101,26 +1157,49 @@ class Database:
         """
         Keep detected devices. Missing DeviceIds are marked inactive; snapshot
         history is never deleted.
+
+        Match on DeviceId only — never OR Device_TAG. Legacy OPC-only rows and
+        SILworX API rows can share a TAG with different DeviceIds; TAG-based
+        deactivate would wipe the API row.
         """
-        present = set(present_tags)
+        present = {str(x) for x in present_tags if x}
         with self.cursor() as cur:
             cur.execute(
                 "SELECT DeviceId, Device_TAG, Results_Type FROM DeviceProoftestResultList"
             )
             rows = [(str(row[0] or ""), str(row[1]), row[2]) for row in cur.fetchall()]
         for device_id, tag, results_type in rows:
-            if device_id in present or tag in present:
-                with self.cursor() as cur:
-                    cur.execute(
-                        "UPDATE DeviceProoftestResultList SET IsActive=1 WHERE DeviceId=? OR Device_TAG=?",
-                        (device_id, tag),
-                    )
-                continue
+            if not device_id:
+                # Orphan row without DeviceId — keep if TAG key was passed (legacy callers).
+                active = tag in present
+            else:
+                active = device_id in present
             with self.cursor() as cur:
-                cur.execute(
-                    "UPDATE DeviceProoftestResultList SET IsActive=0 WHERE DeviceId=? OR Device_TAG=?",
-                    (device_id, tag),
-                )
+                if not device_id:
+                    # Avoid WHERE DeviceId='' flipping every orphan row at once.
+                    if active:
+                        cur.execute(
+                            "UPDATE DeviceProoftestResultList SET IsActive=1 "
+                            "WHERE (DeviceId='' OR DeviceId IS NULL) AND Device_TAG=?",
+                            (tag,),
+                        )
+                    else:
+                        cur.execute(
+                            "UPDATE DeviceProoftestResultList SET IsActive=0 "
+                            "WHERE (DeviceId='' OR DeviceId IS NULL) AND Device_TAG=?",
+                            (tag,),
+                        )
+                    continue
+                if active:
+                    cur.execute(
+                        "UPDATE DeviceProoftestResultList SET IsActive=1 WHERE DeviceId=?",
+                        (device_id,),
+                    )
+                else:
+                    cur.execute(
+                        "UPDATE DeviceProoftestResultList SET IsActive=0 WHERE DeviceId=?",
+                        (device_id,),
+                    )
 
     def deactivate_missing_devices(self, active_tags: List[str]) -> None:
         """Backward-compatible name — now applies add/keep/delete retention."""

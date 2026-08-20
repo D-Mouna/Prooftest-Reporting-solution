@@ -28,7 +28,7 @@ from layers.domain.device import Device, DeviceId
 from layers.domain.merger import CatalogMerger, OpcObservation, SilworxIdentity
 from layers.domain.result_types import ResultTypeCatalog
 from layers.domain.running import RunningEdgeDetector
-from layers.fakes import FakeOpc, FakeReports, FakeSilworx, FakeStore
+from layers.fakes import FakeArchive, FakeOpc, FakeReports, FakeSilworx, FakeStore
 
 TYPE = "X-HART_WIKA_T32_Results"
 
@@ -235,7 +235,8 @@ def test_15_close_silworx_keeps_opc_refresh(tmp_path: Path) -> None:
     assert out["silworx"] == "not connected"
     assert sil.attached is False
     catalog.refresh_catalog()
-    assert sil.list_calls == 0 or not sil.is_attached()
+    # After close, SILworX identities are no longer used; OPC-only devices remain.
+    assert sil.attached is False
     assert any(d.device_tag == "T1" for d in catalog.devices)
 
 
@@ -347,6 +348,370 @@ def test_23_seed_detector_does_not_retrigger_start() -> None:
     live.poll_once([device])
     assert live.completed == []
     assert live.detector.is_in_progress(device.device_id.key())
+
+
+# ----- Edge cases T1–T24 (shaped discover / poll / connect / GUI) -----
+
+_FTL_MEMBERS = {
+    "FTL_Results": {"Running", "TestResult", "SensorOK", "Extra"},
+    "Other_Results": {"Running", "Alpha", "Beta", "Gamma"},
+}
+
+
+def test_t01_someflag_running_rejected() -> None:
+    from layers.domain.opc_discover import discover_shaped_from_tag_lists
+
+    shaped = discover_shaped_from_tag_lists(
+        {"S1": ["SomeFlag.Running", "OTS ProofTest.SomeFlag.Other"]},
+        _FTL_MEMBERS,
+    )
+    assert shaped.observations == []
+
+
+def test_t02_real_tag_shape_accepted() -> None:
+    from layers.domain.opc_discover import discover_shaped_from_tag_lists
+
+    tags = [
+        "OTS ProofTest.100-FZT-001.Running",
+        "OTS ProofTest.100-FZT-001.TestResult",
+        "OTS ProofTest.100-FZT-001.SensorOK",
+        "OTS ProofTest.100-FZT-001.Extra",
+    ]
+    shaped = discover_shaped_from_tag_lists({"S1": tags}, _FTL_MEMBERS)
+    assert len(shaped.observations) == 1
+    assert shaped.observations[0].device_tag == "100-FZT-001"
+    assert shaped.observations[0].results_type == "FTL_Results"
+
+
+def test_t03_silworx_type_wins_over_csv() -> None:
+    sil = FakeSilworx(
+        identities=[SilworxIdentity("ProjA", "Cfg", "Res", "100-FZT-001", "TYPE_X")],
+        attached=True,
+        open_project=True,
+    )
+    opc = FakeOpc(
+        servers=["S1"],
+        paths={("S1", "OTS ProofTest.100-FZT-001.Running"): "OTS ProofTest.100-FZT-001.Running"},
+        opc_only=[
+            OpcObservation(
+                "100-FZT-001",
+                "S1",
+                "OTS ProofTest.100-FZT-001",
+                "FTL_Results",
+                "OTS ProofTest.100-FZT-001.Running",
+            )
+        ],
+    )
+    store, alarms = FakeStore(), RecordingAlarmPort()
+    svc = CatalogService(store, opc, sil, alarms)
+    svc.types.types["TYPE_X"] = __import__(
+        "layers.domain.result_types", fromlist=["ResultType"]
+    ).ResultType("TYPE_X", ("Running",))
+    svc.types.types["FTL_Results"] = __import__(
+        "layers.domain.result_types", fromlist=["ResultType"]
+    ).ResultType("FTL_Results", ("Running", "A", "B", "C"))
+    devices = svc.refresh_catalog()
+    assert len(devices) == 1
+    assert devices[0].results_type == "TYPE_X"
+
+
+def test_t04_opc_only_ambiguous_type_unknown() -> None:
+    from layers.domain.opc_discover import discover_shaped_from_tag_lists
+
+    # Members hit both CSVs at score ≥3 with margin < 2
+    tags = [
+        "OTS ProofTest.TAG1.Running",
+        "OTS ProofTest.TAG1.TestResult",
+        "OTS ProofTest.TAG1.SensorOK",
+        "OTS ProofTest.TAG1.Extra",
+        "OTS ProofTest.TAG1.Alpha",
+        "OTS ProofTest.TAG1.Beta",
+        "OTS ProofTest.TAG1.Gamma",
+    ]
+    shaped = discover_shaped_from_tag_lists({"S1": tags}, _FTL_MEMBERS)
+    assert len(shaped.observations) == 1
+    assert shaped.observations[0].results_type == ""
+
+
+def test_t05_opc_only_keeps_last_sql_type() -> None:
+    from layers.domain.opc_discover import discover_shaped_from_tag_lists
+
+    tags = [
+        "OTS ProofTest.TAG1.Running",
+        "OTS ProofTest.TAG1.TestResult",
+        "OTS ProofTest.TAG1.SensorOK",
+        "OTS ProofTest.TAG1.Extra",
+        "OTS ProofTest.TAG1.Alpha",
+        "OTS ProofTest.TAG1.Beta",
+        "OTS ProofTest.TAG1.Gamma",
+    ]
+    shaped = discover_shaped_from_tag_lists(
+        {"S1": tags},
+        _FTL_MEMBERS,
+        last_types_by_tag={"TAG1": "FTL_Results"},
+    )
+    assert shaped.observations[0].results_type == "FTL_Results"
+
+
+def test_t06_tag_with_dots_rejected() -> None:
+    from layers.domain.opc_discover import parse_shaped_running_item
+
+    assert parse_shaped_running_item("OTS ProofTest.foo.bar.Running") is None
+    assert parse_shaped_running_item("OTS ProofTest.foo.Running") is not None
+
+
+def test_t07_same_tag_two_projects_two_ids() -> None:
+    test_02_same_tag_two_projects()
+
+
+def test_t08_same_deviceid_api_opc_one_row() -> None:
+    test_01_same_deviceid_one_row()
+
+
+def test_t09_opc_path_collision_alarm() -> None:
+    alarms = RecordingAlarmPort()
+    sil = FakeSilworx(
+        identities=[
+            _ident("ProjA", "100-FZT-001"),
+            _ident("ProjB", "100-FZT-001"),
+        ],
+        attached=True,
+        open_project=True,
+    )
+    path = "OTS ProofTest.100-FZT-001"
+    opc = FakeOpc(
+        servers=["S1"],
+        paths={("S1", f"{path}.Running"): f"{path}.Running"},
+        opc_only=[_opc("100-FZT-001", prefix=path), _opc("100-FZT-001", prefix=path)],
+    )
+    svc = CatalogService(FakeStore(), opc, sil, alarms)
+    svc.types.types[TYPE] = __import__(
+        "layers.domain.result_types", fromlist=["ResultType"]
+    ).ResultType(TYPE, ("Running",))
+    svc.refresh_catalog()
+    assert any("collision" in a["message"].lower() for a in alarms.alarms)
+
+
+def test_t10_silworx_only_listed_not_on_opc() -> None:
+    test_04_silworx_only_not_on_opc()
+
+
+def test_t11_empty_opc_browse_no_crash() -> None:
+    from layers.domain.opc_discover import discover_shaped_from_tag_lists
+
+    shaped = discover_shaped_from_tag_lists({"S1": []}, _FTL_MEMBERS)
+    assert shaped.observations == []
+    alarms = RecordingAlarmPort()
+    svc = CatalogService(FakeStore(), FakeOpc(servers=[]), FakeSilworx(), alarms)
+    assert svc.discover_opc_only_devices() == []
+
+
+def test_t12_suspended_api_uses_shaped_opc_only() -> None:
+    sil = FakeSilworx(attached=False, open_project=False)
+    opc = FakeOpc(
+        servers=["S1"],
+        opc_only=[_opc("200-PZT-002")],
+    )
+    store, alarms = FakeStore(), RecordingAlarmPort()
+    svc = CatalogService(store, opc, sil, alarms)
+    svc.types.types[TYPE] = __import__(
+        "layers.domain.result_types", fromlist=["ResultType"]
+    ).ResultType(TYPE, ("Running",))
+    devices = svc.refresh_catalog()
+    assert sil.list_calls == 0
+    assert any(d.device_tag == "200-PZT-002" and d.project == "" for d in devices)
+
+
+def test_t13_false_true_started_no_snapshot() -> None:
+    test_06_false_true_started_no_snapshot()
+
+
+def test_t14_true_false_snapshot_complete() -> None:
+    test_07_true_false_complete_once()
+
+
+def test_t15_interrupt_mid_run() -> None:
+    test_09_interrupt_no_snapshot()
+
+
+def test_t16_poll_isolation_after_error() -> None:
+    test_10_poll_continues_after_device_a_error()
+
+
+def test_t17_seed_no_false_end() -> None:
+    test_23_seed_detector_does_not_retrigger_start()
+
+
+def test_t18_unknown_type_no_prooftest_snapshot() -> None:
+    store = FakeStore()
+    opc = FakeOpc(
+        running_sequence={
+            "OTS ProofTest.A.Running": [(False, "Good"), (False, "Good")],
+        }
+    )
+    live = LiveTestService(opc, store, FakeReports(), RecordingAlarmPort())
+    key = DeviceId("P", "C", "R", "A").key()
+    live.detector._last[key] = True
+    live.detector._in_progress[key] = True
+    device = Device(DeviceId("P", "C", "R", "A"), "", "S", "OTS ProofTest.A", True)
+    live._poll_one(device)
+    assert store.snapshots == []
+    assert live.completed == []
+    assert any("unknown" in a["message"].lower() for a in live.alarms.alarms)  # type: ignore[attr-defined]
+
+
+def test_t19_disconnect_no_project_close_or_kill() -> None:
+    class SpySilworx(FakeSilworx):
+        def __init__(self) -> None:
+            super().__init__(attached=True, open_project=True)
+            self.calls: list[str] = []
+
+        def detach(self) -> None:
+            self.calls.append("detach")
+            super().detach()
+
+        def project_close(self) -> None:  # not on port — must never be invoked via getattr abuse
+            self.calls.append("project_close")
+
+    sil = SpySilworx()
+    catalog = CatalogService(FakeStore(), FakeOpc(), sil, RecordingAlarmPort())
+    SilworxConnectionService(sil, catalog, RecordingAlarmPort()).close_silworx_connection()
+    assert sil.calls == ["detach"]
+    assert "project_close" not in sil.calls
+
+
+def test_t20_connect_resume_no_project_open() -> None:
+    class SpySilworx(FakeSilworx):
+        def __init__(self) -> None:
+            super().__init__(open_project=True)
+            self.calls: list[str] = []
+
+        def attach(self) -> bool:
+            self.calls.append("attach")
+            return super().attach()
+
+        def project_open(self) -> None:
+            self.calls.append("project_open")
+
+    sil = SpySilworx()
+    catalog = CatalogService(FakeStore(), FakeOpc(), sil, RecordingAlarmPort())
+    SilworxConnectionService(sil, catalog, RecordingAlarmPort()).resume_silworx_connection()
+    assert sil.calls == ["attach"]
+    assert "project_open" not in sil.calls
+
+
+def test_t21_open_report_outside_root(tmp_path: Path) -> None:
+    test_18_open_report_outside_root(tmp_path)
+
+
+def test_t22_list_includes_project_opc_sort() -> None:
+    test_17_list_devices_order_and_fields()
+
+
+def test_t23_nonlocal_mutating_checks_documented() -> None:
+    """Gate/controllers enforce localhost on Start/Stop/Connect when checks exist."""
+    from layers.presentation import controllers
+
+    src = Path(controllers.__file__).read_text(encoding="utf-8")
+    assert "localhost" in src.lower() or "127.0.0.1" in src or "client_host" in src.lower()
+
+
+def test_t24_escape_html_covers_project_opc_fields() -> None:
+    app_js = (
+        SOLUTION_ROOT / "Graphic Interface" / "static" / "app.js"
+    ).read_text(encoding="utf-8")
+    assert "escapeHtml(d.project" in app_js or "escapeHtml(d.project ||" in app_js
+    assert "escapeHtml(d.opc_server" in app_js
+
+
+def test_r1_query_uses_archive_port_not_annex() -> None:
+    import inspect
+
+    import layers.application.query as query_mod
+
+    src = inspect.getsource(query_mod)
+    assert "annex_list_archive" not in src
+    arch = FakeArchive()
+    arch.create_archive()
+    q = QueryService(FakeStore(), FakeReports(), RecordingAlarmPort(), archives=arch)
+    assert len(q.list_archives()) == 1
+    q.clear_keep_opc_only(archive_first=False)
+    assert arch.keep_opc is True
+
+
+def test_r2_html_seed_prefers_documents_over_z(tmp_path: Path) -> None:
+    from prooftest.annex_pdf_generation import resolve_html_templates_seed
+
+    class Cfg:
+        report_html_seed = tmp_path / "seed"
+
+    Cfg.report_html_seed.mkdir()
+    path, label = resolve_html_templates_seed(config=Cfg())
+    assert path == Cfg.report_html_seed
+    assert label == "config"
+    # Without config seed, Documents or packaged/Z may apply — never require Z solely
+    path2, label2 = resolve_html_templates_seed()
+    assert label2 != "none" or path2 is None
+    if path2 is not None:
+        assert label2 in ("documents", "packaged", "z_fallback", "config")
+
+
+def test_r3_db_name_validation() -> None:
+    from prooftest.annex_database import validate_sql_database_name
+
+    assert validate_sql_database_name("HIMA_Prooftest") == "HIMA_Prooftest"
+    assert validate_sql_database_name("HIMA Automated Prooftest") == "HIMA Automated Prooftest"
+    try:
+        validate_sql_database_name("bad name'; DROP TABLE")
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
+    try:
+        validate_sql_database_name("x;y")
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
+
+
+def test_r4_auth_bind_policy_loopback_ok() -> None:
+    from prooftest.config import AppConfig
+
+    cfg = AppConfig()
+    cfg.web_host = "127.0.0.1"
+    cfg.web_auth_enabled = False
+    cfg.require_auth_when_non_local = True
+    cfg.apply_auth_bind_policy()
+    assert cfg.auth_bind_warning is False
+
+
+def test_r4_auth_bind_policy_non_local_refuses() -> None:
+    from prooftest.config import AppConfig
+
+    cfg = AppConfig()
+    cfg.web_host = "0.0.0.0"
+    cfg.web_auth_enabled = False
+    cfg.require_auth_when_non_local = True
+    try:
+        cfg.apply_auth_bind_policy()
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
+
+
+def test_r7_unknown_results_type_placeholder() -> None:
+    store = FakeStore()
+    store.upsert_device(Device(DeviceId("", "", "", "TAG1"), "", "S", "OTS ProofTest.TAG1", True))
+    q = QueryService(store, FakeReports(), RecordingAlarmPort())
+    rows = q.list_devices()
+    assert rows[0]["results_type"] == "unknown"
+
+
+def test_r7_connect_button_titles() -> None:
+    html = (SOLUTION_ROOT / "Graphic Interface" / "static" / "index.html").read_text(encoding="utf-8")
+    assert "does not quit SILworX" in html or "does not quit SILworX".lower() in html.lower()
+    assert "this tool" in html.lower()
+    assert "Stop service" in html
+    assert "btn-stop-service" in html
 
 
 def _run_without_pytest() -> int:

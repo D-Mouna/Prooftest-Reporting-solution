@@ -192,12 +192,16 @@ def _device_list_source_label(api_ok: bool, opc_ok: bool) -> str:
 def _discover_opc_or_none(
     opc: OpcManager | None,
     structures: Dict[str, ResultsStructure],
+    *,
+    last_types_by_tag: Optional[Dict[str, str]] = None,
 ) -> Optional[List[OpcDiscoveredDevice]]:
     """OPC browse for the parallel device-list update. None = browse failed / unavailable."""
     if opc is None:
         return None
     try:
-        return discover_devices_from_opc(opc, structures)
+        return discover_devices_from_opc(
+            opc, structures, last_types_by_tag=last_types_by_tag
+        )
     except Exception as exc:
         log.warning("OPC device discovery failed: %s", exc)
         return None
@@ -308,13 +312,12 @@ def apply_merged_device_list(
     for device in merge.devices:
         if keep_opc_only and not device.present_on_opc:
             continue
-        if not device.results_type:
-            continue
+        # Unknown type devices stay listed (no ProofTest_* until type known — poll skips).
         key = device.device_id.key()
         try:
             db.upsert_device(
                 device.device_tag,
-                device.results_type,
+                device.results_type or "",
                 opc_server=device.opc_server or None,
                 opc_prefix=device.opc_item_prefix or None,
                 configuration=device.configuration or None,
@@ -334,7 +337,8 @@ def apply_merged_device_list(
             continue
         active.append(device.device_tag)
         present_keys.append(key)
-        folder_pairs.append((device.device_tag, device.results_type))
+        if device.results_type:
+            folder_pairs.append((device.device_tag, device.results_type))
 
     db.reconcile_device_list(present_keys, report_output=config.report_output)
     if folder_pairs:
@@ -379,7 +383,7 @@ def apply_api_device_list(
     return active
 
 
-def sync_device_list_case1_via_api(
+def sync_device_list_via_api(
     config: AppConfig,
     db: Database,
     structures: Dict[str, ResultsStructure],
@@ -387,18 +391,27 @@ def sync_device_list_case1_via_api(
     opc: OpcManager | None = None,
 ) -> Tuple[List[str], str]:
     """
-    Device list update/refresh: SILworX API and X-OPC run **at the same time**.
+    Deprecated thin shim for older gate tests (neutral name).
 
-    API attaches only if the user has a project open (never open/local).
-    Results are merged once: ``api+opc``, ``api``, or ``opc_fallback``.
+    Production RefreshCatalog uses ``CatalogService.run_station_refresh`` (Domain/ports).
+    This helper still merges API + **shaped** OPC discover for tests that call it directly.
     """
     known_types = set(structures.keys())
+    last_types: Dict[str, str] = {}
+    try:
+        for row in db.list_active_devices() or []:
+            tag = str(row.get("device_tag") or "")
+            rtype = str(row.get("results_type") or "").strip()
+            if tag and rtype:
+                last_types.setdefault(tag, rtype)
+    except Exception:
+        pass
 
     def _api_job() -> Optional[List[ApiDiscoveredDevice]]:
         return try_discover_devices_via_api(case1_sync, known_types, db.alarms)
 
     def _opc_job() -> Optional[List[OpcDiscoveredDevice]]:
-        return _discover_opc_or_none(opc, structures)
+        return _discover_opc_or_none(opc, structures, last_types_by_tag=last_types)
 
     with ThreadPoolExecutor(max_workers=2, thread_name_prefix="device-list") as pool:
         api_future = pool.submit(_api_job)
@@ -407,6 +420,10 @@ def sync_device_list_case1_via_api(
         opc_discovered = opc_future.result()
 
     return apply_merged_device_list(config, db, api_devices, opc_discovered, structures, opc=opc)
+
+
+# Deprecated alias — leftover UNIFIED path naming (not a Case 1 product mode).
+sync_device_list_case1_via_api = sync_device_list_via_api
 
 
 def sync_device_list_from_opc(
@@ -433,36 +450,36 @@ sync_device_list_case2 = sync_device_list_from_opc
 
 
 def _normalize_member(name: str) -> str:
-    return name.replace(" ", "").lower()
+    """Deprecated alias — use layers.domain.opc_discover.normalize_member."""
+    from layers.domain.opc_discover import normalize_member
+
+    return normalize_member(name)
 
 
 def _score_structure_match(member_names: Set[str], structure: ResultsStructure) -> int:
-    required = {_normalize_member(m) for m in structure.member_short_names()}
-    required.discard("")
-    if "running" not in required:
-        return 0
-    normalized = {_normalize_member(m) for m in member_names}
-    return len(required.intersection(normalized))
+    """
+    TEST-ONLY / legacy invent scorer.
+
+    Production OPC-only discovery uses ``layers.domain.opc_discover`` shape gate.
+    Do not call this from production adapters.
+    """
+    from layers.domain.opc_discover import score_structure_match
+
+    return score_structure_match(member_names, set(structure.member_short_names()))
 
 
 def _member_names_under_prefix(tags: List[str], prefix: str) -> Set[str]:
-    """Member names directly under a device prefix (e.g. OTS ProofTest.100-FZT-001)."""
-    prefix_dot = prefix + "."
-    members: Set[str] = set()
-    for tag in tags:
-        if tag.startswith(prefix_dot):
-            remainder = tag[len(prefix_dot) :]
-            top = remainder.split(".")[0]
-            if top:
-                members.add(top)
-    return members
+    from layers.domain.opc_discover import members_under_prefix
+
+    return members_under_prefix(tags, prefix)
 
 
-def _discover_on_server(
+def _discover_on_server_invent_legacy(
     server: str,
     tags: List[str],
     structures: Dict[str, ResultsStructure],
 ) -> List[Tuple[str, str, str, str]]:
+    """LEGACY invent-as-identity (test-only). Prefer discover_devices_from_opc shaped path."""
     found: List[Tuple[str, str, str, str]] = []
     seen_prefixes: Set[str] = set()
 
@@ -483,41 +500,45 @@ def _discover_on_server(
                 best_type = type_name
         if best_type:
             found.append((device_tag, best_type, server, prefix))
-            log.info(
-                "OPC device %s on %s -> %s (prefix=%s, score=%d)",
-                device_tag,
-                server,
-                best_type,
-                prefix,
-                best_score,
-            )
     return found
 
 
 def discover_devices_from_opc(
     opc: OpcManager,
     structures: Dict[str, ResultsStructure],
+    *,
+    last_types_by_tag: Optional[Dict[str, str]] = None,
 ) -> List[Tuple[str, str, str, str]]:
+    """
+    Shaped OPC discover (production rule).
+
+    Returns ``(device_tag, results_type, server, prefix)``.
+    ``results_type`` may be empty when shape passes but type is ambiguous / unknown.
+    """
+    from layers.domain.opc_discover import (
+        discover_shaped_from_tag_lists,
+        type_members_from_structures,
+    )
+
     servers = opc.discover_servers()
     if not servers:
         return []
 
-    best_match: Dict[str, Tuple[int, str, str, str]] = {}
     all_tags = opc.list_tags_all_servers(servers)
-    log.info("Scanning %d X-OPC server(s) on branches %s", len(servers), opc.prooftest_branches)
-
-    for server, tags in all_tags.items():
-        if not tags:
-            log.warning("No tags browsed on server %s", server)
-            continue
-        for device_tag, results_type, srv, prefix in _discover_on_server(server, tags, structures):
-            members = _member_names_under_prefix(tags, prefix)
-            score = _score_structure_match(members, structures[results_type])
-            current = best_match.get(device_tag)
-            if current is None or score > current[0]:
-                best_match[device_tag] = (score, results_type, srv, prefix)
-
-    return [(tag, t, srv, pfx) for tag, (_, t, srv, pfx) in sorted(best_match.items())]
+    log.info(
+        "Scanning %d X-OPC server(s) with shaped discover on branches %s",
+        len(servers),
+        getattr(opc, "prooftest_branches", ("OTS ProofTest", "OPC ProofTest")),
+    )
+    shaped = discover_shaped_from_tag_lists(
+        {str(srv): list(tags or []) for srv, tags in (all_tags or {}).items()},
+        type_members_from_structures(structures),
+        last_types_by_tag=last_types_by_tag or {},
+    )
+    return [
+        (o.device_tag, o.results_type, o.opc_server, o.opc_item_prefix)
+        for o in shaped.observations
+    ]
 
 
 def _sync_from_opc_discovery(
@@ -538,15 +559,30 @@ def _sync_from_opc_discovery(
         )
         return []
 
-    discovered = discover_devices_from_opc(opc, structures)
+    last_types: Dict[str, str] = {}
+    try:
+        for row in db.list_active_devices() or []:
+            tag = str(row.get("device_tag") or "")
+            rtype = str(row.get("results_type") or "").strip()
+            if tag and rtype:
+                last_types.setdefault(tag, rtype)
+    except Exception:
+        pass
+
+    discovered = discover_devices_from_opc(
+        opc,
+        structures,
+        last_types_by_tag=last_types,
+    )
     active: List[str] = []
     folder_pairs: List[Tuple[str, str]] = []
     for device_tag, results_type, server, prefix in discovered:
         active.append(device_tag)
-        folder_pairs.append((device_tag, results_type))
+        if results_type:
+            folder_pairs.append((device_tag, results_type))
         db.upsert_device(
             device_tag,
-            results_type,
+            results_type or "",
             opc_server=server,
             opc_prefix=prefix,
         )

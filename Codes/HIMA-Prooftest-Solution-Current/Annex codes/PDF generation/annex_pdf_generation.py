@@ -257,15 +257,65 @@ def resolve_html_template_path(
     return alt if alt.is_file() else None
 
 
+def resolve_html_templates_seed(
+    seed_root: Path | None = None,
+    *,
+    config: object | None = None,
+) -> tuple[Optional[Path], str]:
+    """
+    Resolve HTML template seed directory (R2).
+
+    Order: explicit arg → config.report_html_seed → Documents Report Solution seed
+    → packaged Current/Report Templates Seed → Z:\\ optional last fallback.
+    """
+    candidates: list[tuple[str, Path]] = []
+    if seed_root is not None:
+        candidates.append(("explicit", Path(seed_root)))
+    if config is not None:
+        configured = getattr(config, "report_html_seed", None)
+        if configured:
+            candidates.append(("config", Path(configured)))
+    documents = Path(r"C:\Users\Administrator\Documents\Report Solution\1- HTML Reports Template")
+    candidates.append(("documents", documents))
+    # Packaged under Current tree (optional offline seed folder)
+    packaged = Path(__file__).resolve().parents[2] / "Report Templates Seed"
+    candidates.append(("packaged", packaged))
+    z_fallback = Path(r"Z:\Project\Report Solution\1- HTML Reports Template")
+    candidates.append(("z_fallback", z_fallback))
+
+    for label, path in candidates:
+        try:
+            if path.is_dir():
+                return path, label
+        except OSError:
+            continue
+    return None, "none"
+
+
 def _package_html_templates_seed() -> Path:
-    return Path(r"Z:\Project\Report Solution\1- HTML Reports Template")
+    """Best-effort seed path; prefer resolve_html_templates_seed for callers."""
+    path, _label = resolve_html_templates_seed()
+    return path or Path(r"Z:\Project\Report Solution\1- HTML Reports Template")
 
 
-def seed_known_report_templates(templates_root: Path, seed_root: Path | None = None) -> int:
+def seed_known_report_templates(
+    templates_root: Path,
+    seed_root: Path | None = None,
+    *,
+    config: object | None = None,
+) -> int:
     """Copy baseline HIMA report template folders into the station templates dir."""
-    src = Path(seed_root) if seed_root else _package_html_templates_seed()
-    if not src.is_dir():
+    import logging
+
+    log = logging.getLogger(__name__)
+    src, label = resolve_html_templates_seed(seed_root, config=config)
+    if src is None or not src.is_dir():
+        log.warning(
+            "HTML template seed not found (config/Documents/packaged/Z) — "
+            "will rely on auto-generated templates"
+        )
         return 0
+    log.info("HTML template seed: %s (%s)", src, label)
     templates_root.mkdir(parents=True, exist_ok=True)
     copied = 0
     for folder in list_expected_html_template_folders():

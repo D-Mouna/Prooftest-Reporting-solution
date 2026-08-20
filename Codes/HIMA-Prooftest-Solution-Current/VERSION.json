@@ -1,8 +1,8 @@
-﻿{
+{
   "spec_id": "SPEC-001",
   "spec_version": "1.64",
   "status": "current",
-  "code_version": "1.75",
-  "description": "Audit cleanup: single production refresh writer; UI DeviceId sort + SILworX tool-badge wording; architecture docs pack under docs/.",
+  "code_version": "1.77",
+  "description": "R1–R7: ArchivePort, HTML seed preference, db_name validation, auth/bind guard, UI unknown type + Connect titles; case1 aliases.",
   "code_folder": "HIMA-Prooftest-Solution-Current"
 }

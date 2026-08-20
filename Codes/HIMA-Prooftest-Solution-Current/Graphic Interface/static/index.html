@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>HIMA Automated Prooftest</title>
   <link rel="icon" href="img/himalogo.png"/>
-  <link rel="stylesheet" href="style.css?v=1.75.0"/>
+  <link rel="stylesheet" href="style.css?v=1.77.0"/>
 </head>
 <body>
   <div id="service-banner" class="service-banner hidden" role="alert"></div>
@@ -28,10 +28,14 @@
         <button id="btn-refresh" type="button" class="btn-primary">
           Refresh / Reset
         </button>
-        <button id="btn-connect-silworx" type="button" class="btn-service btn-start">Connect to SILworX</button>
-        <button id="btn-disconnect-silworx" type="button" class="btn-service btn-stop">Disconnect SILworX</button>
-        <button id="btn-start-service" type="button" class="btn-service btn-start">Start service</button>
-        <button id="btn-stop-service" type="button" class="btn-service btn-stop">Stop service</button>
+        <button id="btn-connect-silworx" type="button" class="btn-service btn-start"
+          title="Attach this tool’s SILworX API/plugin only — does not open or close the engineer’s project">Connect to SILworX</button>
+        <button id="btn-disconnect-silworx" type="button" class="btn-service btn-stop"
+          title="Detach this tool only — does not quit SILworX, close the project, or kill c3.exe">Disconnect SILworX</button>
+        <button id="btn-start-service" type="button" class="btn-service btn-start"
+          title="Start the Prooftest engine (OPC poll + sync)">Start service</button>
+        <button id="btn-stop-service" type="button" class="btn-service btn-stop"
+          title="Stop the Prooftest engine; this web page stays open">Stop service</button>
       </div>
     </div>
   </section>

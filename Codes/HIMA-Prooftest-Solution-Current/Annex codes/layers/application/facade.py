@@ -7,6 +7,7 @@ from typing import Any, Callable, Optional
 
 from layers.adapters import (
     AlarmManagerAdapter,
+    AnnexListArchiveAdapter,
     AnnexReportAdapter,
     Case1SyncSilworxAdapter,
     DatabaseStoreAdapter,
@@ -28,6 +29,7 @@ class ApplicationFacade:
         self.opc_port = OpcManagerAdapter(host.opc, structures_fn=lambda: getattr(host, "structures", {}) or {})
         self.store_port = DatabaseStoreAdapter(host.db, getattr(host, "structures", {}) or {})
         self.report_port = AnnexReportAdapter(host.config, host.db, self.store_port)
+        self.archive_port = AnnexListArchiveAdapter(host)
         self.silworx_port = Case1SyncSilworxAdapter(
             host._case1_sync,
             structures_fn=lambda: set((getattr(host, "structures", {}) or {}).keys()),
@@ -43,6 +45,7 @@ class ApplicationFacade:
             self.silworx_port,
             self.alarm_port,
             types_folder=getattr(host.config, "results_structures", None),
+            archive=self.archive_port,
         )
         self.live = LiveTestService(
             self.opc_port,
@@ -51,7 +54,13 @@ class ApplicationFacade:
             self.alarm_port,
             defer_complete=True,
         )
-        self.query = QueryService(self.store_port, self.report_port, self.alarm_port, host=host)
+        self.query = QueryService(
+            self.store_port,
+            self.report_port,
+            self.alarm_port,
+            host=host,
+            archives=self.archive_port,
+        )
         self.silworx_conn = SilworxConnectionService(
             self.silworx_port,
             self.catalog,

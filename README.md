@@ -21,14 +21,15 @@ Station runtime (not this git tree): `C:\HIMA Prooftest Reporting Tool\`
 
 ## Architecture audit docs (2026-08-20)
 
-- [docs/IMPLEMENTATION-INVENTORY.md](./docs/IMPLEMENTATION-INVENTORY.md) — what was coded (Part A)
-- [docs/OLD-vs-NEW.md](./docs/OLD-vs-NEW.md) — OLD vs NEW behaviour (Part B)
-- [docs/CLEANUP-LOG.md](./docs/CLEANUP-LOG.md) — cleanup actions (Part C)
-- [docs/CODE-AUDIT.md](./docs/CODE-AUDIT.md) — code audit (Part D)
-- [docs/UI-UX-AUDIT.md](./docs/UI-UX-AUDIT.md) — UI/UX audit (Part E)
-- [docs/SECURITY-VULNERABILITY-REPORT.md](./docs/SECURITY-VULNERABILITY-REPORT.md) — security tests (Part F)
-- [docs/ARCHITECTURE-AS-BUILT.md](./docs/ARCHITECTURE-AS-BUILT.md) — as-built diagram
+- [docs/IMPLEMENTATION-INVENTORY.md](./docs/IMPLEMENTATION-INVENTORY.md) — what was coded
+- [docs/OLD-vs-NEW.md](./docs/OLD-vs-NEW.md) — OLD vs NEW cutover
+- [docs/ARCHITECTURE-AS-BUILT.md](./docs/ARCHITECTURE-AS-BUILT.md) — as-built hub + Gaps A/B/C
+- [docs/CLEANUP-LOG.md](./docs/CLEANUP-LOG.md) — cleanup actions
+- [docs/CODE-AUDIT.md](./docs/CODE-AUDIT.md) — code audit
+- [docs/UI-UX-AUDIT.md](./docs/UI-UX-AUDIT.md) — UI/UX audit
+- [docs/SECURITY-VULNERABILITY-REPORT.md](./docs/SECURITY-VULNERABILITY-REPORT.md) — S1–S12 + dependencies
 - [docs/HOW-TO-RUN-TESTS.md](./docs/HOW-TO-RUN-TESTS.md) — test commands
+- [docs/OPERATOR-CONNECT-DISCONNECT.md](./docs/OPERATOR-CONNECT-DISCONNECT.md) — Connect/Disconnect does not stop SILworX
 
 ## Versioning
 

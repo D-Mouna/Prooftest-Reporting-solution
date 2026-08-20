@@ -7,7 +7,7 @@ from typing import Any, Callable, Optional
 
 from layers.domain.device import Device
 from layers.domain.merger import OpcObservation, SilworxIdentity
-from layers.ports import AlarmPort, OpcPort, ReportPort, SilworxPort, StorePort
+from layers.ports import AlarmPort, OpcPort, ReportPort, SilworxPort, StorePort, ArchivePort
 
 
 def _structure_to_sql_table(results_type: str) -> str:
@@ -60,6 +60,24 @@ class OpcManagerAdapter:
             return list(self._opc.list_all_tags(server) or [])
         return []
 
+    def list_tags_all_servers(self, servers: Optional[list[str]] = None) -> dict[str, list[str]]:
+        """Browse ProofTest tags into cache for every server (used by bind_opc_paths)."""
+        if hasattr(self._opc, "list_tags_all_servers"):
+            raw = self._opc.list_tags_all_servers(servers)
+            return {str(srv): list(tags or []) for srv, tags in (raw or {}).items()}
+        out: dict[str, list[str]] = {}
+        for server in servers or self.discover_servers():
+            out[str(server)] = self.list_tags(str(server))
+        return out
+
+    def invalidate_tag_cache(self) -> None:
+        inval = getattr(self._opc, "invalidate_tag_cache", None)
+        if callable(inval):
+            inval()
+            return
+        if hasattr(self._opc, "invalidate_cache"):
+            self._opc.invalidate_cache()
+
     def find_running_path(self, server: str, device_tag: str) -> Optional[str]:
         if hasattr(self._opc, "find_running_path"):
             return self._opc.find_running_path(server, device_tag)
@@ -74,27 +92,43 @@ class OpcManagerAdapter:
             return None, str(quality)
         return bool(value), str(quality)
 
-    def discover_opc_only(self, known_types: set[str]) -> list[OpcObservation]:
+    def discover_opc_only(
+        self,
+        known_types: set[str],
+        *,
+        last_types_by_tag: Optional[dict[str, str]] = None,
+    ) -> list[OpcObservation]:
+        """Shaped OPC-only discover (CSV shape gate / clear type). Invent scorer is dead."""
         del known_types
         structures = self._structures_fn() or {}
         if not structures:
             return []
         try:
-            from prooftest.step03_device_list import discover_devices_from_opc
+            from layers.domain.opc_discover import (
+                discover_shaped_from_tag_lists,
+                type_members_from_structures,
+            )
 
-            found = discover_devices_from_opc(self._opc, structures)
+            servers = self.discover_servers()
+            if not servers:
+                return []
+            tags_by_server: dict[str, list[str]] = {}
+            if hasattr(self._opc, "list_tags_all_servers"):
+                tags_by_server = {
+                    str(srv): list(tags or [])
+                    for srv, tags in (self._opc.list_tags_all_servers(servers) or {}).items()
+                }
+            else:
+                for server in servers:
+                    tags_by_server[server] = self.list_tags(server)
+            shaped = discover_shaped_from_tag_lists(
+                tags_by_server,
+                type_members_from_structures(structures),
+                last_types_by_tag=last_types_by_tag or {},
+            )
+            return list(shaped.observations)
         except Exception:
             return []
-        return [
-            OpcObservation(
-                device_tag=device_tag,
-                opc_server=server,
-                opc_item_prefix=prefix,
-                results_type=results_type,
-                running_item=f"{prefix}.Running",
-            )
-            for device_tag, results_type, server, prefix in found
-        ]
 
 
 class DatabaseStoreAdapter:
@@ -113,7 +147,7 @@ class DatabaseStoreAdapter:
     def upsert_device(self, device: Device) -> None:
         self._db.upsert_device(
             device.device_tag,
-            device.results_type,
+            device.results_type or "",
             opc_server=device.opc_server or None,
             opc_prefix=device.opc_item_prefix or None,
             configuration=device.configuration or None,
@@ -123,6 +157,12 @@ class DatabaseStoreAdapter:
             silworx_project=device.project or None,
             device_id=device.device_id.key(),
         )
+        setter = getattr(self._db, "set_device_present_on_opc_by_id", None)
+        if callable(setter):
+            try:
+                setter(device.device_id.key(), bool(device.present_on_opc))
+            except Exception:
+                pass
 
     def list_devices(self, view: str = "all") -> list[dict]:
         return self._db.list_devices(view)
@@ -227,8 +267,53 @@ class AnnexReportAdapter:
         return path
 
 
+class AnnexListArchiveAdapter:
+    """ArchivePort over annex_list_archive — keeps Application free of annex imports."""
+
+    def __init__(self, host: Any) -> None:
+        self._host = host
+
+    def list_archives(self) -> list[dict]:
+        from prooftest.annex_list_archive import list_list_archives
+
+        try:
+            return list(list_list_archives(self._host.config) or [])
+        except Exception:
+            return []
+
+    def create_archive(self) -> dict:
+        from prooftest.annex_list_archive import create_list_archive
+
+        return create_list_archive(self._host.db, self._host.config)
+
+    def restore_archive(self, archive_id: str) -> dict:
+        from prooftest.annex_list_archive import restore_list_archive
+
+        return restore_list_archive(self._host.db, self._host.config, archive_id)
+
+    def restore_archive_upload(self, path: object, filename: str) -> dict:
+        from pathlib import Path
+
+        from prooftest.annex_list_archive import restore_from_uploaded_file
+
+        return restore_from_uploaded_file(self._host.db, self._host.config, Path(path), filename)
+
+    def clear_keep_opc_only(self, *, archive_first: bool = True) -> dict:
+        from prooftest.annex_list_archive import clear_keep_opc_only
+
+        return clear_keep_opc_only(self._host.db, self._host.config, archive_first=archive_first)
+
+    def keep_opc_only_enabled(self) -> bool:
+        from prooftest.annex_list_archive import keep_opc_only_enabled
+
+        try:
+            return bool(keep_opc_only_enabled(self._host.db))
+        except Exception:
+            return False
+
+
 class Case1SyncSilworxAdapter:
-    """SilworxPort over Case1SyncTriggers — this tool's session only."""
+    """SilworxPort over SilworxSyncTriggers / Case1SyncTriggers — this tool's session only."""
 
     def __init__(
         self,
@@ -245,8 +330,20 @@ class Case1SyncSilworxAdapter:
         return bool(self._case1.is_tool_attached())
 
     def attach(self) -> bool:
+        """Clear suspend, ensure plugin monitor, and attach to a user-open GUI session."""
         self._case1.resume_tool_clients()
-        return bool(self._case1.is_tool_attached()) or not self._case1.is_api_suspended()
+        if self._case1.is_tool_attached():
+            return True
+        try:
+            for instance in self._case1.discover_api_instances(force=True) or []:
+                api_port = getattr(instance, "api_port", None)
+                if api_port is None:
+                    continue
+                if self._case1._try_attach_gui_session_on_port(int(api_port)):
+                    return True
+        except Exception:
+            pass
+        return bool(self._case1.is_tool_attached())
 
     def detach(self) -> None:
         self._case1.detach_tool_clients()
@@ -292,4 +389,4 @@ class Case1SyncSilworxAdapter:
 
 
 # Protocol checks for static analysis / tests
-_ = (AlarmPort, OpcPort, ReportPort, StorePort, SilworxPort)
+_ = (AlarmPort, OpcPort, ReportPort, StorePort, SilworxPort, ArchivePort)

@@ -498,7 +498,7 @@ async function loadDevices() {
         <img class="device-logo" src="${vendorLogo(d.results_type)}" alt=""/>
         <span class="device-tag">${escapeHtml(d.device_tag)}</span>
       </td>
-      <td>${escapeHtml(d.results_type || "")}</td>
+      <td>${escapeHtml(d.results_type && String(d.results_type).trim() ? d.results_type : "unknown")}</td>
       <td>${status}</td>
       <td>${escapeHtml(d.project || d.silworx_project || "")}</td>
       <td>${escapeHtml(d.opc_server || "")}</td>`;
