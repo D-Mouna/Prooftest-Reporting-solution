@@ -15,3 +15,20 @@ _tok.tmp
 cert_creator_*.txt
 commit push github.py
 Codes/HIMA-Prooftest-Solution-Current/Annex codes/Tool test/data/
+
+# Local-only / huge / legacy (not for GitHub)
+0- Previous solution/
+4- API Documentations/
+4- API Documentations.zip
+Codes/Archive/
+Codes/HIMA-Prooftest-Solution/
+Recording */
+*.pptx
+Specifications.docx
+Instructions to develope the code.docx
+snapshot.PNG
+Tool Design*.jpg
+Apply the proposed architecture.txt
+Read the Prooftest reporting code o.txt
+MVC Architecture/
+Report Solution 2/

@@ -1,0 +1,561 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html lang="en">
+<head>
+<meta http-equiv="content-type" content="text/html; charset=utf-8">
+<meta content="HIMA Paul Hildebrandt GmbH" name="author">
+<link rel="icon" href="img/favicon.ico">
+<link rel="stylesheet" href="img/report.css">
+<link rel="stylesheet" href="img/bitmasks-list.css">
+<style>
+
+/* Specific ENUMs */
+
+.yesno::before { display: inline-block; content: "Unknown" }
+.yesno-False::after { content: "No"; }
+.yesno-True::after { content: "Yes"; }
+.yesno.yesno-False::before,
+.yesno.yesno-True::before { content: ""; display: none; }
+
+.proof-summary::before { display: inline-block; content: "Unknown" }
+.proof-summary-False::after { content: "Successful"; }
+.proof-summary-True::after { content: "Test finished with faults"; }
+.proof-summary.proof-summary-False::before,
+.proof-summary.proof-summary-True::before { content: ""; display: none; }
+
+.summary::before { display: inline-block; content: "Unknown" }
+.summary-809::after { content: "Successful"; }
+.summary-33161::after { content: "Not done"; }
+.summary.summary-809::before,
+.summary.summary-33161::before { content: ""; display: none; }
+
+</style>
+</head>
+<body>
+
+<!-- Page 1 -->
+<div class="page">
+
+	<div class="header">
+		<div class="header-left">
+			<div class="report">Proof test report</div>
+			<div class="device">FMR6xB</div>
+		</div>
+		<div class="header-center"><img src="img/himalogo.png"></div>
+		<div class="header-right"><img src="img/ehlogo.png"></div>
+	</div>
+	<div class="value">
+		<div class="value-left">Date/Time (UTC)</div>
+		<div class="value-center">$(Start_Timestamp)</div>
+	</div>
+	<hr/>
+
+	<div class="value">
+		<div class="value-left">Device tag</div>
+		<div class="value-center">$(Tag)</div>
+		<div class="img-right"><img src="img/ehsil.png"></div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">Serial number</div>
+		<div class="value-center">$(Serial_Number)</div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">Device tag (long)</div>
+		<div class="value-center">$(Long_Tag)</div>
+	</div>
+
+	<div class="caption">Device information</div>
+
+	<div class="value">
+		<div class="value-left">Device type</div>
+		<div class="value-center">$(Device_Type)</div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">Device ID</div>
+		<div class="value-center">$(Device_ID)</div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">Device revision</div>
+		<div class="value-center">$(Device_Revision)</div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">Hardware revision</div>
+		<div class="value-center">$(Hardware_Revision)</div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">Software revision</div>
+		<div class="value-center">$(Software_Revision)</div>
+	</div>
+
+	<div class="caption">Proof test results</div>
+	<div class="value">
+		<div class="value-left">Summary</div>
+		<div class="value-center proof-summary proof-summary-$(Error)"></div>
+		<div class="img-right"><img src="img/ehheartbeat.png"></div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">Date/Time start proof test</div>
+		<div class="value-center">$(Start_Timestamp)</div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">Date/Time end proof test</div>
+		<div class="value-center">$(End_Timestamp)</div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">CRC before proof test</div>
+		<div class="value-center">$(CRC_Before_Test)</div>
+	</div>
+	<div class="value">
+		<div class="value-left">CRC after proof test</div>
+		<div class="value-center">$(CRC_After_Test)</div>
+	</div>
+	<hr/>
+</div>
+
+<!-- Page 2 -->
+<div class="page">
+
+	<div class="header">
+		<div class="header-left">
+			<div class="report">Proof test report</div>
+			<div class="device">FMR6xB</div>
+		</div>
+		<div class="header-center"><img src="img/himalogo.png"></div>
+		<div class="header-right"><img src="img/ehlogo.png"></div>
+	</div>
+	<hr/>
+
+	<div class="value compact two-column">
+		<div class="value-left">Device tag</div>
+		<div class="value-right">$(Tag)</div>
+	</div>
+
+	<div class="value compact two-column">
+		<div class="value-left">Date/Time (UTC)</div>
+		<div class="value-right">$(Start_Timestamp)</div>
+	</div>
+
+	<div class="caption">Transmitter Settings</div>
+
+	<div class="value">
+		<div class="value-left">Alarm Selection</div>
+		<div class="value-center">$(Alarm_Selection)</div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">Transfer Function</div>
+		<div class="value-center">$(Transfer_Function)</div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">Lower Range Value</div>
+		<div class="value-center">$(Lower_Range_Value) $(Transmitter_Units_Code)</div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">Upper Range Value</div>
+		<div class="value-center">$(Upper_Range_Value) $(Transmitter_Units_Code)</div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">Damping Value</div>
+		<div class="value-center">$(Damping_Value) s</div>
+	</div>
+
+	<div class="caption">Loopcheck simulation and check</div>
+	<div class="value">
+		<div class="value-left">Value nr.</div>
+		<div class="value-center">Test value</div>
+		<div class="value-right">Actual value</div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">Value 1</div>
+		<div class="value-center">$(Test_Point_1) mA</div>
+		<div class="value-right">$(Actual_Value_1) mA</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Value 2</div>
+		<div class="value-center">$(Test_Point_2) mA</div>
+		<div class="value-right">$(Actual_Value_2) mA</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Value 3</div>
+		<div class="value-center">$(Test_Point_3) mA</div>
+		<div class="value-right">$(Actual_Value_3) mA</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Value 4</div>
+		<div class="value-center">$(Test_Point_4) mA</div>
+		<div class="value-right">$(Actual_Value_4) mA</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Value 5</div>
+		<div class="value-center">$(Test_Point_5) mA</div>
+		<div class="value-right">$(Actual_Value_5) mA</div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">Precision</div>
+		<div class="value-center">$(Precision) mA</div>
+	</div>
+
+	<div class="caption">Heartbeat verification</div>
+	<div class="value">
+		<div class="value-left">Result</div>
+		<div class="value-center summary summary-$(Heartbeat_Verification_Result)"></div>
+	</div>
+	<div class="text">
+		Heartbeat verification verifies the function of the measurement instrument with a total test coverage TTC of &gt; 94%
+	</div>
+</div>
+
+<!-- Page 3 -->
+<div class="page">
+
+	<div class="header">
+		<div class="header-left">
+			<div class="report">Proof test report</div>
+			<div class="device">FMR6xB</div>
+		</div>
+		<div class="header-center"><img src="img/himalogo.png"></div>
+		<div class="header-right"><img src="img/ehlogo.png"></div>
+	</div>
+	<hr/>
+
+	<div class="value compact two-column">
+		<div class="value-left">Device tag</div>
+		<div class="value-right">$(Tag)</div>
+	</div>
+
+	<div class="value compact two-column">
+		<div class="value-left">Date/Time (UTC)</div>
+		<div class="value-right">$(Start_Timestamp)</div>
+	</div>
+
+	<div class="caption">Additional test information</div>
+
+	<div class="value">
+		<div class="value-left">Heartbeat verification timestamp</div>
+		<div class="value-center">$(Heartbeat_Verification_Timestamp)</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Temperature unit</div>
+		<div class="value-center">$(Temperature_Unit)</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Builtup Detection Activated</div>
+		<div class="value-center">$(Builtup_Detection_Activated)</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Builtup Detection</div>
+		<div class="value-center">$(Builtup_Detection)</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Failure current (high alarm)</div>
+		<div class="value-center">$(High_Error_Current) mA</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Failure current (low alarm)</div>
+		<div class="value-center">$(Low_Error_Current) mA</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Min Temperature</div>
+		<div class="value-center">$(Min_Temperature)</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Max Temperature</div>
+		<div class="value-center">$(Max_Temperature)</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Parameters before test</div>
+		<div class="value-center">$(Parameters_Before_Test)</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Parameters after test</div>
+		<div class="value-center">$(Parameters_After_Test)</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Locking Status</div>
+		<div class="value-center">$(Locking_Status)</div>
+	</div>
+	<div class="value">
+		<div class="value-left">User Level</div>
+		<div class="value-center">$(User_Level)</div>
+	</div>
+	<div class="caption">Runtime information</div>
+
+	<div class="value">
+		<div class="value-left">Enabled</div>
+		<div class="value-center">$(Enabled)</div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">Running</div>
+		<div class="value-center">$(Running)</div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">Block error</div>
+		<div class="value-center">$(Block_Error)</div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">Block running</div>
+		<div class="value-center">$(Block_Running)</div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">Current step</div>
+		<div class="value-center">$(Current_Step)</div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">Response code</div>
+		<div class="value-center">$(Response_Code)</div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">RAW value</div>
+		<div class="value-center">$(RAW_Value)</div>
+	</div>
+
+	<div class="value">
+		<div class="value-left">Write protect code</div>
+		<div class="value-center">$(Write_Protect_Code)</div>
+	</div>
+
+	<hr/>
+</div>
+
+<!-- Page 4 -->
+<div class="page">
+
+	<div class="header">
+		<div class="header-left">
+			<div class="report">Proof test report</div>
+			<div class="device">FMR6xB</div>
+		</div>
+		<div class="header-center"><img src="img/himalogo.png"></div>
+		<div class="header-right"><img src="img/ehlogo.png"></div>
+	</div>
+	<hr/>
+
+	<div class="value compact two-column">
+		<div class="value-left">Device tag</div>
+		<div class="value-right">$(Tag)</div>
+	</div>
+
+	<div class="value compact two-column">
+		<div class="value-left">Date/Time (UTC)</div>
+		<div class="value-right">$(Start_Timestamp)</div>
+	</div>
+
+	<div class="caption">Device status summary</div>
+	<div class="text">Device status</div>
+	<hr class="single"/>
+	<hr class="single"/>
+
+	<div class="flags flags-$(Device_Status)">
+		<div class="value compact two-column">
+			<div class="value-left">Primary Variable Out of Limits</div>
+			<div class="value-right flag flag-0" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Non-Primary Variable Out of Limits</div>
+			<div class="value-right flag flag-1" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Loop Current Saturated</div>
+			<div class="value-right flag flag-2" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Loop Current Fixed</div>
+			<div class="value-right flag flag-3" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">More Status Available</div>
+			<div class="value-right flag flag-4" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Cold Start</div>
+			<div class="value-right flag flag-5" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Configuration Changed</div>
+			<div class="value-right flag flag-6" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Device Malfunction</div>
+			<div class="value-right flag flag-7" data-1="Fault" data-0="OK"></div>
+		</div>
+	</div>
+
+</div>
+
+<!-- Page 5 -->
+<div class="page">
+
+	<div class="header">
+		<div class="header-left">
+			<div class="report">Proof test report</div>
+			<div class="device">FMR6xB</div>
+		</div>
+		<div class="header-center"><img src="img/himalogo.png"></div>
+		<div class="header-right"><img src="img/ehlogo.png"></div>
+	</div>
+	<hr/>
+
+	<div class="value compact two-column">
+		<div class="value-left">Device tag</div>
+		<div class="value-right">$(Tag)</div>
+	</div>
+
+	<div class="value compact two-column">
+		<div class="value-left">Date/Time (UTC)</div>
+		<div class="value-right">$(Start_Timestamp)</div>
+	</div>
+
+	<div class="caption">Device and verification information</div>
+
+	<div class="flags flags-$(Error_code_Byte1)">
+		<div class="value compact two-column">
+			<div class="value-left">Error Code (dez)</div>
+			<div class="value-right">$(Error_code)</div>
+		</div>
+		<hr class="single"/>
+		<hr class="single"/>
+		<div class="value compact two-column">
+			<div class="value-left">Sequence aborted (Interlock input activated)</div>
+			<div class="value-right flag flag-0" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">HART Communication Timeout</div>
+			<div class="value-right flag flag-1" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Communication to HART Package Timeout</div>
+			<div class="value-right flag flag-2" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">HART Command Error (Response Code is not 0)</div>
+			<div class="value-right flag flag-3" data-1="Fault" data-0="OK"></div>
+		</div>
+	</div>
+    <hr class="single"/>
+    <hr class="single"/>
+	<div class="flags flags-$(Error_code_Byte2)">
+		<div class="value compact two-column">
+			<div class="value-left">Device identification: Device Type error</div>
+			<div class="value-right flag flag-0" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Device identification: Device Revision error</div>
+			<div class="value-right flag flag-1" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Device identification: Device ID error</div>
+			<div class="value-right flag flag-2" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Transmitter Settings: Alarm Selection error</div>
+			<div class="value-right flag flag-3" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Transmitter Settings: Transfer Function error</div>
+			<div class="value-right flag flag-4" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Transmitter Settings: Units Code error</div>
+			<div class="value-right flag flag-5" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Transmitter Settings: Upper Range Value error</div>
+			<div class="value-right flag flag-6" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Transmitter Settings: Lower Range Value error</div>
+			<div class="value-right flag flag-7" data-1="Fault" data-0="OK"></div>
+		</div>
+	</div>
+    <hr class="dotted"/>
+	<div class="flags flags-$(Error_code_Byte3)">
+		<div class="value compact two-column">
+			<div class="value-left">Transmitter Settings: Damping Value error</div>
+			<div class="value-right flag flag-0" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">CRC error</div>
+			<div class="value-right flag flag-1" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Parameter check error</div>
+			<div class="value-right flag flag-2" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Set User Role error</div>
+			<div class="value-right flag flag-3" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Password check error</div>
+			<div class="value-right flag flag-4" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Locking/Unlocking: Device is Hardware locked</div>
+			<div class="value-right flag flag-5" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Locking/Unlocking: Device is temporarily locked</div>
+			<div class="value-right flag flag-6" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Locking/Unlocking: Error changing Locking State</div>
+			<div class="value-right flag flag-7" data-1="Fault" data-0="OK"></div>
+		</div>
+	</div>
+    <hr class="dotted"/>
+	<div class="flags flags-$(Error_code_Byte4)">
+		<div class="value compact two-column">
+			<div class="value-left">Heartbeat Verification: Option not available</div>
+			<div class="value-right flag flag-0" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Heartbeat Verification: Heartbeat Verification failed</div>
+			<div class="value-right flag flag-1" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Prooftest: Channel not OK before testing</div>
+			<div class="value-right flag flag-2" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Prooftest: Channel not OK after testing</div>
+			<div class="value-right flag flag-3" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Prooftest: Low Error Current simulation error</div>
+			<div class="value-right flag flag-4" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Prooftest: High Error Current simulation error</div>
+			<div class="value-right flag flag-5" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Loop Check: Value Check failure</div>
+			<div class="value-right flag flag-6" data-1="Fault" data-0="OK"></div>
+		</div>
+	</div>
+
+	<hr/>
+	<div class="page-footer-text">Notes:</div>
+</div>
+
+</body>
+</html>

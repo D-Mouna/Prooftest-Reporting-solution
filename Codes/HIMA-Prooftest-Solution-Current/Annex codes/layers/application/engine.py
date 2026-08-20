@@ -1,4 +1,4 @@
-"""Engine: StartEngine / StopEngine / GetEngineStatus. Workers are injectable no-ops in tests."""
+"""Engine: StartEngine / StopEngine / GetEngineStatus. Workers / host hooks injectable."""
 
 from __future__ import annotations
 
@@ -25,6 +25,10 @@ class Engine:
         *,
         start_workers: Optional[Callable[[], None]] = None,
         stop_workers: Optional[Callable[[], None]] = None,
+        status_fn: Optional[Callable[[], dict]] = None,
+        start_fn: Optional[Callable[[], None]] = None,
+        stop_fn: Optional[Callable[[], None]] = None,
+        refresh_fn: Optional[Callable[[], None]] = None,
     ) -> None:
         self.store = store
         self.opc = opc
@@ -36,10 +40,20 @@ class Engine:
         self.silworx_conn = silworx_conn or SilworxConnectionService(silworx, catalog, alarms)
         self._start_workers = start_workers or (lambda: None)
         self._stop_workers = stop_workers or (lambda: None)
+        self._status_fn = status_fn
+        self._start_fn = start_fn
+        self._stop_fn = stop_fn
+        self._refresh_fn = refresh_fn
         self.engine_state = "stopped"
         self.workers_started = False
 
     def start_engine(self) -> str:
+        if self._start_fn is not None:
+            self.engine_state = "starting"
+            self._start_fn()
+            self.engine_state = "running"
+            self.workers_started = True
+            return self.engine_state
         self.engine_state = "starting"
         try:
             self.store.ensure_folders()
@@ -73,6 +87,11 @@ class Engine:
         return self.engine_state
 
     def stop_engine(self) -> str:
+        if self._stop_fn is not None:
+            self._stop_fn()
+            self.workers_started = False
+            self.engine_state = "stopped"
+            return self.engine_state
         try:
             self._stop_workers()
         except Exception:
@@ -85,7 +104,15 @@ class Engine:
         self.engine_state = "stopped"
         return self.engine_state
 
+    def refresh_catalog(self) -> None:
+        if self._refresh_fn is not None:
+            self._refresh_fn()
+            return
+        self.catalog.refresh_catalog()
+
     def get_engine_status(self) -> dict:
+        if self._status_fn is not None:
+            return dict(self._status_fn())
         try:
             servers = self.opc.discover_servers()
         except Exception as exc:

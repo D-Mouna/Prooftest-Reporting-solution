@@ -1,0 +1,10 @@
+[{
+"name": "hima.o_scope",
+"hash": "5BC0241544FF642A5B47BF3365391765386E46B8E3BEC347DA4D0D1E16698496",
+"exec": "O_Scope.exe",
+"author": "Application Development (APD)",
+"vendor": "HIMA Paul Hildebrandt GmbH",
+"license": "Plug-In Feature license and SILworX API license",
+"description": "The plug-in starts the recording of process values of local variables and displays the selected variables in a oscilloscope-like graphic",
+"version": "1.1-0"
+}]

@@ -3,6 +3,8 @@
 **All development happens in one folder: `HIMA-Prooftest-Solution-Current`.**  
 Before any code change, archive a snapshot under `Archive/` with an incremented version number.
 
+**Legacy / unused code index:** [Legacy-Code-Index.md](../Legacy-Code-Index.md) — catalogue of archives, predecessor trees, templates, and reference folders not part of Current.
+
 Specifications still use versioned files (`SPEC-001-v{x.y}-...md`) — see [Specifications/README.md](../Specifications/README.md).
 
 ---
@@ -92,4 +94,4 @@ See [Archive/README.md](./Archive/README.md) and [Archive/ARCHIVE_INDEX.json](./
 
 | Folder | Role |
 |--------|------|
-| [Report-Tool](./Report-Tool/) | Shared OPC client (`Connection-opc.py`); referenced by Prooftest solution via relative path |
+| [Report-Tool](./Report-Tool/) | **Legacy.** Former shared OPC client. Live client is now `HIMA-Prooftest-Solution-Current\Annex codes\OPC\connection_opc.py`. Do not use this folder for production. |

@@ -4,6 +4,8 @@
 
 Before any modification, archive this folder — run `..\archive_current.ps1`.
 
+**Unused / legacy code inside Current:** [Legacy-Code-Index.md](./Legacy-Code-Index.md)
+
 ## Quick start
 
 ```powershell

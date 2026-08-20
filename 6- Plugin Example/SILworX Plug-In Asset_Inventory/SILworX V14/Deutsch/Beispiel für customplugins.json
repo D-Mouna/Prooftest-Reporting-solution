@@ -1,0 +1,9 @@
+{
+  "plugins": [
+    {
+      "plugin_name": "asset_inventory",
+      "plugin_path": "C:\\Plugins\\Asset_Inventory.exe",
+      "plugin_hash": "C6D68C64CAE01490E1AE102F4DA12AA19C705FA85FC44C89082C03104FDCFE20""
+    }
+  ]
+}

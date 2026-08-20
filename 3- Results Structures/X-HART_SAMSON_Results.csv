@@ -1,0 +1,28 @@
+Name,Data type,Initial Value,Sequence Number
+X-HART_SAMSON_Results,,,
+X-HART_SAMSON_Results.Block Error,WORD,,9
+X-HART_SAMSON_Results.Block Running,WORD,,8
+X-HART_SAMSON_Results.Current Step,UINT,,7
+X-HART_SAMSON_Results.Device ID,DWORD,,4
+X-HART_SAMSON_Results.Device Revision,USINT,,1
+X-HART_SAMSON_Results.Device Status,BYTE,,18
+X-HART_SAMSON_Results.Device Type,WORD,,0
+X-HART_SAMSON_Results.Enabled,BOOL,,25
+X-HART_SAMSON_Results.End Timestamp,UDINT,,22
+X-HART_SAMSON_Results.Error,BOOL,,6
+X-HART_SAMSON_Results.Error Code,DWORD,,20
+X-HART_SAMSON_Results.Extended Device Status,BYTE,,24
+X-HART_SAMSON_Results.Hardware Revision,USINT,,3
+X-HART_SAMSON_Results.Long Tag,X-HART_ASCII_32,,11
+X-HART_SAMSON_Results.Mode,USINT,,13
+X-HART_SAMSON_Results.Open Feedback,BOOL,,16
+X-HART_SAMSON_Results.RAW Value,DINT,,23
+X-HART_SAMSON_Results.Response Code,BYTE,,17
+X-HART_SAMSON_Results.Running,BOOL,,5
+X-HART_SAMSON_Results.Software Revision,USINT,,2
+X-HART_SAMSON_Results.Start Timestamp,UDINT,,21
+X-HART_SAMSON_Results.Tag,X-HART_ASCII_32,,10
+X-HART_SAMSON_Results.Test Active,BOOL,,14
+X-HART_SAMSON_Results.Test Result,WORD,,12
+X-HART_SAMSON_Results.Use Feedback Signals,BOOL,,15
+X-HART_SAMSON_Results.Write Protect Code,BYTE,,19

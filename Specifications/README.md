@@ -51,7 +51,7 @@
 
 | Spec ID | Latest file | Version | Date | Status |
 |---------|-------------|---------|------|--------|
-| SPEC-001 | [SPEC-001-v1.62-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md](./SPEC-001-v1.62-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | 1.62 | 2026-08-19 | Draft |
+| SPEC-001 | [SPEC-001-v1.64-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md](./SPEC-001-v1.64-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | 1.64 | 2026-08-20 | Draft |
 
 ---
 
@@ -67,6 +67,8 @@
 
 | Version | File | Status |
 |---------|------|--------|
+| 1.63 | [SPEC-001-v1.63-...](./SPEC-001-v1.63-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.64 |
+| 1.62 | [SPEC-001-v1.62-...](./SPEC-001-v1.62-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.63 |
 | 1.61 | [SPEC-001-v1.61-...](./SPEC-001-v1.61-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.62 |
 | 1.60 | [SPEC-001-v1.60-...](./SPEC-001-v1.60-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.61 |
 | 1.59 | [SPEC-001-v1.59-...](./SPEC-001-v1.59-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) | Superseded by v1.60 |

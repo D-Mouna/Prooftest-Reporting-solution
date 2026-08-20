@@ -1,0 +1,9 @@
+{
+  "plugins": [
+    {
+      "plugin_name": "asset_inventory",
+      "plugin_path": "C:\\Plugins\\Diagnose_Auslesen.exe",
+      "plugin_hash": "6C2020BECD4BCCF9A61ED266184AB5DD8A5A0F8DE75C2A0FAD8DF2797F05D8C1""
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+OpenOPC-DA==1.5.1
+pywin32==311
+Pyro5==5.16
+serpent==1.42

@@ -71,6 +71,14 @@ class ProoftestService:
         self._health_cache_at: float = 0.0
         self._health_cache_ttl_sec: float = 2.0
         self._health_lock = threading.Lock()
+        self.app = None
+        self._build_application()
+
+    def _build_application(self) -> None:
+        """Wire Presentation → Application (Engine / Catalog / Query / SILworX)."""
+        from layers.application.facade import ApplicationFacade
+
+        self.app = ApplicationFacade(self)
 
     def set_shutdown_callback(self, callback: Callable[[str], None]) -> None:
         self._on_shutdown = callback
@@ -185,6 +193,7 @@ class ProoftestService:
         self.alarms.set_persist_callback(self._persist_alarm)
         log.info("Engine start: loading Results Structures")
         self.structures = load_all_structures(self.config.results_structures)
+        self._build_application()
         sync_results_type_folders_from_catalogue(
             self.config, self.alarms, list(self.structures.keys())
         )
@@ -489,6 +498,12 @@ class ProoftestService:
     def list_devices(self, view: str = "all") -> list:
         if self._stopped and not self._starting:
             return []
+        if self.app is not None:
+            try:
+                return self.app.query.list_devices(view)
+            except Exception as exc:
+                log.exception("ListDevices failed: %s", exc)
+                return []
         try:
             from layers.domain.device import sort_device_dicts
 
@@ -504,6 +519,10 @@ class ProoftestService:
         project: Optional[str] = None,
         device_id: Optional[str] = None,
     ) -> list:
+        if self.app is not None:
+            return self.app.list_reports(
+                device, results_type, project=project, device_id=device_id
+            )
         from prooftest.annex_pdf_generation import list_reports_for_device
 
         return list_reports_for_device(
@@ -516,6 +535,8 @@ class ProoftestService:
 
     def close_silworx_connection(self) -> Dict[str, object]:
         """Drop this tool's API/plugin session only. Engine and OPC keep running."""
+        if self.app is not None:
+            return self.app.close_silworx_connection()
         already = self._case1_sync.is_api_suspended() and not self._case1_sync.is_tool_attached()
         if already:
             return {
@@ -553,6 +574,8 @@ class ProoftestService:
 
     def resume_silworx_connection(self) -> Dict[str, object]:
         """Attach to an already-open SILworX project. Never opens or kills SILworX."""
+        if self.app is not None:
+            return self.app.resume_silworx_connection()
         try:
             self._case1_sync.resume_tool_clients()
         except Exception as exc:

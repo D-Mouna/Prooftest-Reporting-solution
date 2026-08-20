@@ -3,10 +3,10 @@
 | Field | Value |
 |-------|--------|
 | **Document** | Cumulative change log for SPEC-001 |
-| **Paired spec** | [SPEC-001-v1.62-...](./SPEC-001-v1.62-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) (current) |
-| **Location** | `Z:\Project\Report Solution\Specifications` |
+| **Paired spec** | [SPEC-001-v1.64-...](./SPEC-001-v1.64-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) (current) |
+| **Location** | `C:\Users\Administrator\Documents\Report Solution\Specifications` |
 | **Filename** | `History of Modifications.md` |
-| **Updated** | 2026-08-19 |
+| **Updated** | 2026-08-20 |
 
 > **Policy:** Each SPEC version file documents **only** what changed from its immediate predecessor. This file collects **all** version-to-version modifications for audit. Do not edit superseded SPEC files — append new sections here when publishing a new SPEC version.
 
@@ -21,6 +21,31 @@
 ---
 
 ## Collected modifications (newest first)
+
+### Version 1.64 (2026-08-20)
+
+**Supersedes v1.63.** OPC client self-contained inside Current.
+
+#### What changed to v1.64
+
+| Topic | Change |
+|-------|--------|
+| OPC client location | Live client is `Annex codes/OPC/connection_opc.py` inside Current. |
+| Trust boundary | No load from sibling `Codes/Report-Tool`. |
+| Legacy | `Codes/Report-Tool` frozen reference only. |
+
+### Version 1.63 (2026-08-20)
+
+**Supersedes v1.62.** Full layered Application facade for production; Presentation calls Application only.
+
+#### What changed to v1.63
+
+| Topic | Change |
+|-------|--------|
+| Application facade | Presentation uses `ApplicationFacade` for engine, catalog, SILworX connect, queries, alarms, and list archives. |
+| Production wiring | WorkerHost (`ProoftestService`) builds Engine + Catalog + Query + SilworxConnection + port adapters. |
+| SilworxPort | `Case1SyncSilworxAdapter` for this tool’s session only. |
+| OPC-only | `OpcManagerAdapter.discover_opc_only` wired for CatalogService. |
 
 ### Version 1.62 (2026-08-19)
 

@@ -1,13 +1,19 @@
-"""Runtime adapters: OpcManager / Database / write_reports / AlarmManager → ports."""
+"""Runtime adapters: OpcManager / Database / write_reports / AlarmManager / Case1 → ports."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from layers.domain.device import Device
-from layers.ports import AlarmPort, OpcPort, ReportPort, StorePort
-from prooftest.results_csv import structure_to_sql_table
+from layers.domain.merger import OpcObservation, SilworxIdentity
+from layers.ports import AlarmPort, OpcPort, ReportPort, SilworxPort, StorePort
+
+
+def _structure_to_sql_table(results_type: str) -> str:
+    from prooftest.results_csv import structure_to_sql_table
+
+    return structure_to_sql_table(results_type)
 
 
 class AlarmManagerAdapter:
@@ -37,8 +43,14 @@ class AlarmManagerAdapter:
 
 
 class OpcManagerAdapter:
-    def __init__(self, opc: Any) -> None:
+    def __init__(
+        self,
+        opc: Any,
+        *,
+        structures_fn: Optional[Callable[[], dict]] = None,
+    ) -> None:
         self._opc = opc
+        self._structures_fn = structures_fn or (lambda: {})
 
     def discover_servers(self) -> list[str]:
         return list(self._opc.discover_servers()) if hasattr(self._opc, "discover_servers") else []
@@ -62,8 +74,27 @@ class OpcManagerAdapter:
             return None, str(quality)
         return bool(value), str(quality)
 
-    def discover_opc_only(self, known_types: set[str]) -> list:
-        return []
+    def discover_opc_only(self, known_types: set[str]) -> list[OpcObservation]:
+        del known_types
+        structures = self._structures_fn() or {}
+        if not structures:
+            return []
+        try:
+            from prooftest.step03_device_list import discover_devices_from_opc
+
+            found = discover_devices_from_opc(self._opc, structures)
+        except Exception:
+            return []
+        return [
+            OpcObservation(
+                device_tag=device_tag,
+                opc_server=server,
+                opc_item_prefix=prefix,
+                results_type=results_type,
+                running_item=f"{prefix}.Running",
+            )
+            for device_tag, results_type, server, prefix in found
+        ]
 
 
 class DatabaseStoreAdapter:
@@ -103,7 +134,7 @@ class DatabaseStoreAdapter:
         self._db.reconcile_device_list([])
 
     def insert_snapshot(self, device_tag: str, results_type: str, snapshot: dict, **kwargs) -> int:
-        table = structure_to_sql_table(results_type)
+        table = _structure_to_sql_table(results_type)
         record_id = self._db.insert_snapshot(
             table,
             device_tag,
@@ -123,6 +154,21 @@ class DatabaseStoreAdapter:
 
     def finish_test(self, device_tag: str, outcome: str, result: str = "") -> None:
         self._db.finish_open_test_history(device_tag, outcome, result or None)
+
+    def list_running_tests(self) -> list[dict]:
+        return list(self._db.list_running_tests() or [])
+
+    def list_test_history(self) -> list[dict]:
+        return list(self._db.list_test_history() or [])
+
+    def list_recent_alarms(self) -> list[dict]:
+        return list(self._db.list_recent_alarms() or [])
+
+    def acknowledge_alarm(self, alarm_id: int) -> Optional[dict]:
+        return self._db.acknowledge_alarm(alarm_id)
+
+    def reset_alarms(self) -> None:
+        self._db.reset_alarms()
 
 
 class AnnexReportAdapter:
@@ -181,5 +227,69 @@ class AnnexReportAdapter:
         return path
 
 
+class Case1SyncSilworxAdapter:
+    """SilworxPort over Case1SyncTriggers — this tool's session only."""
+
+    def __init__(
+        self,
+        case1: Any,
+        *,
+        structures_fn: Optional[Callable[[], set[str]]] = None,
+        project_name_fn: Optional[Callable[[], str]] = None,
+    ) -> None:
+        self._case1 = case1
+        self._structures_fn = structures_fn or (lambda: set())
+        self._project_name_fn = project_name_fn or (lambda: "")
+
+    def is_attached(self) -> bool:
+        return bool(self._case1.is_tool_attached())
+
+    def attach(self) -> bool:
+        self._case1.resume_tool_clients()
+        return bool(self._case1.is_tool_attached()) or not self._case1.is_api_suspended()
+
+    def detach(self) -> None:
+        self._case1.detach_tool_clients()
+
+    def has_open_project(self) -> bool:
+        if self._case1.is_tool_attached():
+            return True
+        try:
+            sessions = self._case1.refresh_open_sessions()
+            return bool(sessions)
+        except Exception:
+            return False
+
+    def list_identities(self, known_types: set[str]) -> list[SilworxIdentity]:
+        types = known_types or self._structures_fn()
+        if not types:
+            return []
+        try:
+            from prooftest.step03_device_list import try_discover_devices_via_api
+
+            class _Quiet:
+                def raise_alarm(self, *args, **kwargs):
+                    return None
+
+            devices = try_discover_devices_via_api(self._case1, set(types), _Quiet())
+        except Exception:
+            devices = None
+        if not devices:
+            return []
+        project = self._project_name_fn() or ""
+        rows: list[SilworxIdentity] = []
+        for d in devices:
+            rows.append(
+                SilworxIdentity(
+                    project=d.silworx_project or project,
+                    configuration=d.configuration or "",
+                    resource=d.resource or "",
+                    device_tag=d.device_tag,
+                    results_type=d.results_type,
+                )
+            )
+        return rows
+
+
 # Protocol checks for static analysis / tests
-_ = (AlarmPort, OpcPort, ReportPort, StorePort)
+_ = (AlarmPort, OpcPort, ReportPort, StorePort, SilworxPort)

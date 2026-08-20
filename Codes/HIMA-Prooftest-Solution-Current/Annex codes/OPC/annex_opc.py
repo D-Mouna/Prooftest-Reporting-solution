@@ -14,7 +14,9 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 log = logging.getLogger(__name__)
 
-REPORT_TOOL = Path(__file__).resolve().parents[3] / "Report-Tool"
+# OPC Classic DA client lives inside Current (same annex folder) — never load from
+# sibling Codes\Report-Tool (path confusion / out-of-tree code risk).
+_OPC_CLIENT_PATH = Path(__file__).resolve().parent / "connection_opc.py"
 
 # RPC_E_WRONG_THREAD, RPC_E_DISCONNECTED, CO_E_OBJNOTCONNECTED
 _COM_REUSE_MARKERS = (
@@ -35,7 +37,11 @@ def _is_com_reuse_error(exc: BaseException) -> bool:
 def _load_connection_opc():
     import importlib.util
 
-    path = REPORT_TOOL / "Connection-opc.py"
+    path = _OPC_CLIENT_PATH
+    if not path.is_file():
+        raise ImportError(
+            f"OPC client missing: {path}. Expected Annex codes/OPC/connection_opc.py inside Current."
+        )
     module_name = "hima_connection_opc"
     if module_name in sys.modules:
         return sys.modules[module_name]

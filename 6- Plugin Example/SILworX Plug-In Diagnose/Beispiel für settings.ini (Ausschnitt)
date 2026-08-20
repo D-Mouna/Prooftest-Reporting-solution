@@ -1,0 +1,7 @@
+[API_Server]
+Enabled=true
+IpAddress=::1
+ServerCertificate=C:\Plugins\Certificates\api_cert.pem
+ServerPrivateKey=C:\Plugins\Certificates\api_key.pem
+[Plugin_Server]
+PluginNames=hima.ssl_certificates_creator, Diagnose_Auslesen

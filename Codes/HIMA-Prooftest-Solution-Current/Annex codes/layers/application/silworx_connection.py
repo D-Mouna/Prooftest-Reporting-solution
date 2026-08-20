@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Callable, Optional
+
 from layers.application.catalog_service import CatalogService
 from layers.application.errors import STEP_S7
 from layers.ports import AlarmPort, SilworxPort
@@ -13,10 +15,13 @@ class SilworxConnectionService:
         silworx: SilworxPort,
         catalog: CatalogService,
         alarms: AlarmPort,
+        *,
+        refresh_fn: Optional[Callable[[], None]] = None,
     ) -> None:
         self.silworx = silworx
         self.catalog = catalog
         self.alarms = alarms
+        self._refresh = refresh_fn or (lambda: self.catalog.refresh_catalog())
 
     def close_silworx_connection(self) -> dict:
         if not self.silworx.is_attached():
@@ -29,7 +34,10 @@ class SilworxConnectionService:
             except Exception:
                 pass
             self.alarms.raise_alarm(STEP_S7, "CloseSilworXconnection", str(exc))
-        self.catalog.refresh_catalog()
+        try:
+            self._refresh()
+        except Exception as exc:
+            self.alarms.raise_alarm(STEP_S7, "CloseSilworXconnection", str(exc))
         return {"silworx": "not connected", "status": "disconnected"}
 
     def resume_silworx_connection(self) -> dict:
@@ -46,5 +54,8 @@ class SilworxConnectionService:
                 severity="Warning",
             )
             return {"silworx": "not connected", "status": "no_open_project"}
-        self.catalog.refresh_catalog()
+        try:
+            self._refresh()
+        except Exception as exc:
+            self.alarms.raise_alarm(STEP_S7, "ResumeSilworXconnection", str(exc))
         return {"silworx": "running", "status": "attached"}

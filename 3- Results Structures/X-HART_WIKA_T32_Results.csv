@@ -1,0 +1,43 @@
+Name,Data type,Initial Value,Sequence Number
+X-HART_WIKA_T32_Results,,,
+X-HART_WIKA_T32_Results.Actual Value 1,REAL,,29
+X-HART_WIKA_T32_Results.Actual Value 2,REAL,,30
+X-HART_WIKA_T32_Results.Actual Value 3,REAL,,31
+X-HART_WIKA_T32_Results.Actual Value 4,REAL,,32
+X-HART_WIKA_T32_Results.Actual Value 5,REAL,,33
+X-HART_WIKA_T32_Results.Actual Value 6,REAL,,34
+X-HART_WIKA_T32_Results.Actual Value 7,REAL,,35
+X-HART_WIKA_T32_Results.Alarm Selection,BYTE,,12
+X-HART_WIKA_T32_Results.Block Error,WORD,,9
+X-HART_WIKA_T32_Results.Block Running,WORD,,8
+X-HART_WIKA_T32_Results.Current Step,UINT,,7
+X-HART_WIKA_T32_Results.Damping Value,REAL,,17
+X-HART_WIKA_T32_Results.Device ID,DWORD,,4
+X-HART_WIKA_T32_Results.Device Revision,USINT,,1
+X-HART_WIKA_T32_Results.Device Status,BYTE,,19
+X-HART_WIKA_T32_Results.Device Type,WORD,,0
+X-HART_WIKA_T32_Results.Enabled,BOOL,,41
+X-HART_WIKA_T32_Results.End Timestamp,UDINT,,38
+X-HART_WIKA_T32_Results.Error,BOOL,,6
+X-HART_WIKA_T32_Results.Error Code,DWORD,,36
+X-HART_WIKA_T32_Results.Extended Device Status,BYTE,,40
+X-HART_WIKA_T32_Results.Hardware Revision,USINT,,3
+X-HART_WIKA_T32_Results.Lower Range Value,REAL,,15
+X-HART_WIKA_T32_Results.Precision,REAL,,28
+X-HART_WIKA_T32_Results.RAW Value,DINT,,39
+X-HART_WIKA_T32_Results.Response Code,BYTE,,18
+X-HART_WIKA_T32_Results.Running,BOOL,,5
+X-HART_WIKA_T32_Results.Software Revision,USINT,,2
+X-HART_WIKA_T32_Results.Start Timestamp,UDINT,,37
+X-HART_WIKA_T32_Results.Tag,X-HART_ASCII_32,,10
+X-HART_WIKA_T32_Results.Test Point 1,REAL,,21
+X-HART_WIKA_T32_Results.Test Point 2,REAL,,22
+X-HART_WIKA_T32_Results.Test Point 3,REAL,,23
+X-HART_WIKA_T32_Results.Test Point 4,REAL,,24
+X-HART_WIKA_T32_Results.Test Point 5,REAL,,25
+X-HART_WIKA_T32_Results.Test Point 6,REAL,,26
+X-HART_WIKA_T32_Results.Test Point 7,REAL,,27
+X-HART_WIKA_T32_Results.Transfer Function,BYTE,,13
+X-HART_WIKA_T32_Results.Transmitter Units Code,BYTE,,16
+X-HART_WIKA_T32_Results.Upper Range Value,REAL,,14
+X-HART_WIKA_T32_Results.Write Protect Code,BYTE,,20

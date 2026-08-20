@@ -1,0 +1,56 @@
+Name,Data type,Initial Value,Sequence Number
+X-HART_E+H_PMx7xB_Results,,,
+X-HART_E+H_PMx7xB_Results.Actual Value 1,REAL,,44
+X-HART_E+H_PMx7xB_Results.Actual Value 2,REAL,,45
+X-HART_E+H_PMx7xB_Results.Actual Value 3,REAL,,46
+X-HART_E+H_PMx7xB_Results.Actual Value 4,REAL,,47
+X-HART_E+H_PMx7xB_Results.Actual Value 5,REAL,,48
+X-HART_E+H_PMx7xB_Results.Alarm Selection,BYTE,,13
+X-HART_E+H_PMx7xB_Results.Block Error,WORD,,9
+X-HART_E+H_PMx7xB_Results.Block Running,WORD,,8
+X-HART_E+H_PMx7xB_Results.CRC After Test,WORD,,20
+X-HART_E+H_PMx7xB_Results.CRC Before Test,WORD,,19
+X-HART_E+H_PMx7xB_Results.Current Step,UINT,,7
+X-HART_E+H_PMx7xB_Results.Damping Value,REAL,,18
+X-HART_E+H_PMx7xB_Results.Device ID,DWORD,,4
+X-HART_E+H_PMx7xB_Results.Device Revision,USINT,,1
+X-HART_E+H_PMx7xB_Results.Device Status,BYTE,,24
+X-HART_E+H_PMx7xB_Results.Device Type,WORD,,0
+X-HART_E+H_PMx7xB_Results.Enabled,BOOL,,53
+X-HART_E+H_PMx7xB_Results.End Timestamp,UDINT,,51
+X-HART_E+H_PMx7xB_Results.Error,BOOL,,6
+X-HART_E+H_PMx7xB_Results.Error Code,DWORD,,49
+X-HART_E+H_PMx7xB_Results.Hardware Revision,USINT,,3
+X-HART_E+H_PMx7xB_Results.Heartbeat Verification Result,UINT,,28
+X-HART_E+H_PMx7xB_Results.Heartbeat Verification Timestamp,UDINT,,27
+X-HART_E+H_PMx7xB_Results.High Error Current,REAL,,37
+X-HART_E+H_PMx7xB_Results.Locking Status,UINT,,26
+X-HART_E+H_PMx7xB_Results.Long Tag,X-HART_ASCII_32,,11
+X-HART_E+H_PMx7xB_Results.Low Error Current,REAL,,36
+X-HART_E+H_PMx7xB_Results.Lower Range Value,REAL,,16
+X-HART_E+H_PMx7xB_Results.Max Pressure,REAL,,33
+X-HART_E+H_PMx7xB_Results.Max Temperature,REAL,,30
+X-HART_E+H_PMx7xB_Results.Min Pressure,REAL,,32
+X-HART_E+H_PMx7xB_Results.Min Temperature,REAL,,29
+X-HART_E+H_PMx7xB_Results.Parameters After Test,X-HART_E+H_PMx7xB_Parameters,,22
+X-HART_E+H_PMx7xB_Results.Parameters Before Test,X-HART_E+H_PMx7xB_Parameters,,21
+X-HART_E+H_PMx7xB_Results.Precision,REAL,,43
+X-HART_E+H_PMx7xB_Results.Pressure Unit,UINT,,34
+X-HART_E+H_PMx7xB_Results.RAW Value,DINT,,52
+X-HART_E+H_PMx7xB_Results.Response Code,BYTE,,23
+X-HART_E+H_PMx7xB_Results.Running,BOOL,,5
+X-HART_E+H_PMx7xB_Results.Serial Number,X-HART_ASCII_32,,12
+X-HART_E+H_PMx7xB_Results.Software Revision,USINT,,2
+X-HART_E+H_PMx7xB_Results.Start Timestamp,UDINT,,50
+X-HART_E+H_PMx7xB_Results.Tag,X-HART_ASCII_32,,10
+X-HART_E+H_PMx7xB_Results.Temperature Unit,UINT,,31
+X-HART_E+H_PMx7xB_Results.Test Point 1,REAL,,38
+X-HART_E+H_PMx7xB_Results.Test Point 2,REAL,,39
+X-HART_E+H_PMx7xB_Results.Test Point 3,REAL,,40
+X-HART_E+H_PMx7xB_Results.Test Point 4,REAL,,41
+X-HART_E+H_PMx7xB_Results.Test Point 5,REAL,,42
+X-HART_E+H_PMx7xB_Results.Transfer Function,BYTE,,14
+X-HART_E+H_PMx7xB_Results.Transmitter Units Code,BYTE,,17
+X-HART_E+H_PMx7xB_Results.Upper Range Value,REAL,,15
+X-HART_E+H_PMx7xB_Results.User Level,WORD,,25
+X-HART_E+H_PMx7xB_Results.Zero Adjustment Offset,REAL,,35

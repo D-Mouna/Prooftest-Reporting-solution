@@ -38,7 +38,7 @@ class ProoftestMonitor:
         self._store = DatabaseStoreAdapter(db, structures)
         self._reports = AnnexReportAdapter(config, db, self._store)
         self._live = LiveTestService(
-            OpcManagerAdapter(opc),
+            OpcManagerAdapter(opc, structures_fn=lambda: self.structures),
             self._store,
             self._reports,
             AlarmManagerAdapter(db.alarms),

@@ -4,11 +4,11 @@
 |-------|--------|
 | **Document** | Cumulative change log for solution **code** archives |
 | **Active tree** | [HIMA-Prooftest-Solution-Current](./HIMA-Prooftest-Solution-Current/) |
-| **Current `VERSION.json`** | **1.65** (SPEC 1.62) |
-| **Paired spec** | [SPEC-001-v1.62-...](../Specifications/SPEC-001-v1.62-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) |
-| **Location** | `Z:\Project\Report Solution\Codes` |
+| **Current `VERSION.json`** | **1.67** (SPEC 1.64) |
+| **Paired spec** | [SPEC-001-v1.64-...](../Specifications/SPEC-001-v1.64-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) |
+| **Location** | `C:\Users\Administrator\Documents\Report Solution\Codes` |
 | **Filename** | `Code History of Modifications.md` |
-| **Updated** | 2026-08-19 |
+| **Updated** | 2026-08-20 |
 
 > **Policy:** Edit **only** `HIMA-Prooftest-Solution-Current`. Before each change, archive Current → `Archive/HIMA-Prooftest-Solution-v{next}` (`archive_current.ps1`). Archived folders are immutable. This file collects **all** code version-to-version modifications for audit (same role as [Specifications/History of Modifications.md](../Specifications/History%20of%20Modifications.md) for specs).
 
@@ -27,6 +27,10 @@
 
 | Code / archive | Date | Summary |
 |----------------|------|---------|
+| **Current → 1.67** | 2026-08-20 | OPC client inside Current `Annex codes/OPC/connection_opc.py`; sibling Report-Tool legacy |
+| Archive v1.66 | 2026-08-20 | Snapshot before OPC client move into Current |
+| **Current → 1.66** | 2026-08-20 | Full Application facade; Presentation → Application only; SilworxPort + OPC-only adapters |
+| Archive v1.65 | 2026-08-20 | Snapshot before full layer architecture wiring |
 | **Current → 1.65** | 2026-08-19 | Report folders scoped by Project/DeviceId; Presentation controllers + LiveTestService poll integration |
 | **Current → 1.64** | 2026-08-18 | Layers; composite DeviceId; GUI Project/OPC columns; SILworX attach/detach without killing SILworX |
 | Archive v1.63 | 2026-08-18 | Snapshot before layered architecture |
@@ -85,6 +89,18 @@
 ---
 
 ## Collected modifications (newest first)
+
+### Version 1.67 (2026-08-20)
+
+**Paired SPEC:** v1.64. Archive before change: v1.66.
+
+Move OPC Classic DA client into Current (`Annex codes/OPC/connection_opc.py`). `annex_opc.py` loads only from that path. Sibling `Codes/Report-Tool` marked legacy (no out-of-tree OPC load).
+
+### Version 1.66 (2026-08-20)
+
+**Paired SPEC:** v1.63. Archive before change: v1.65.
+
+Wire full Application facade for production: Presentation controllers call `ApplicationFacade` only (with MagicMock fallbacks for Gate 11). `ProoftestService` builds Engine/Catalog/Query/SilworxConnection + SilworxPort and OPC-only adapters. Live poll path unchanged via LiveTestService.
 
 ### Version 1.65 (2026-08-19)
 

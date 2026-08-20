@@ -1,4 +1,4 @@
-"""Presentation layer — FastAPI controllers. No OPC COM or SILworX HTTP here."""
+"""Presentation layer — FastAPI controllers. Call Application only (no OPC/SQL/PDF)."""
 
 from __future__ import annotations
 
@@ -13,16 +13,6 @@ from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from prooftest.annex_list_archive import (
-    ListArchiveError,
-    clear_keep_opc_only,
-    create_list_archive,
-    list_list_archives,
-    restore_from_uploaded_file,
-    restore_list_archive,
-)
-from prooftest.annex_pdf_generation import list_reports_for_device
-
 if TYPE_CHECKING:
     from prooftest.service import ProoftestService
 
@@ -32,6 +22,7 @@ def is_local_client(request: Request) -> bool:
         return False
     host = request.client.host
     return host in ("127.0.0.1", "::1", "localhost")
+
 
 def _is_local_client(request: Request) -> bool:
     """
@@ -58,6 +49,14 @@ def auth_ok(request: Request, service: "ProoftestService") -> bool:
         return True
     token = request.headers.get("X-Prooftest-Token") or request.query_params.get("token")
     return bool(token and token == service.config.web_auth_token)
+
+
+def application(service: "ProoftestService"):
+    """Return ApplicationFacade when wired; None for Gate-11 MagicMock fallbacks."""
+    app = getattr(service, "app", None)
+    if app is not None and getattr(app, "_host", None) is service:
+        return app
+    return None
 
 
 class WebApp:
@@ -91,10 +90,16 @@ class StatusController:
 
         @app.get("/api/health")
         def health():
+            facade = application(service)
+            if facade is not None:
+                return facade.get_engine_status()
             return service.health()
 
         @app.get("/api/running-tests")
         def running_tests():
+            facade = application(service)
+            if facade is not None:
+                return facade.list_running_tests()
             try:
                 return service.db.list_running_tests()
             except Exception:
@@ -102,6 +107,9 @@ class StatusController:
 
         @app.get("/api/test-history")
         def test_history():
+            facade = application(service)
+            if facade is not None:
+                return facade.list_test_history()
             try:
                 return service.db.list_test_history()
             except Exception:
@@ -125,7 +133,11 @@ class EngineController:
                 }
 
             def _run() -> None:
-                service.refresh(manual=True)
+                facade = application(service)
+                if facade is not None:
+                    facade.refresh_catalog()
+                else:
+                    service.refresh(manual=True)
 
             threading.Thread(target=_run, daemon=True, name="manual-refresh").start()
             return {"status": "refresh_started", "popups": service.alarms.pop_pending_popups()}
@@ -150,7 +162,11 @@ class EngineController:
 
             def _run() -> None:
                 try:
-                    service.start()
+                    facade = application(service)
+                    if facade is not None:
+                        facade.start_engine()
+                    else:
+                        service.start()
                 except Exception:
                     import logging
 
@@ -169,7 +185,11 @@ class EngineController:
             if not _is_local_client(request):
                 raise HTTPException(status_code=403, detail="Stop is allowed from localhost only")
             reason = request.query_params.get("reason", "ui_stop")
-            service.request_stop_flags(reason)
+            facade = application(service)
+            if facade is not None:
+                facade.request_stop_flags(reason)
+            else:
+                service.request_stop_flags(reason)
 
             def _run() -> None:
                 from prooftest.annex_stop_service import perform_graceful_shutdown
@@ -192,7 +212,11 @@ class EngineController:
             reason = request.query_params.get("reason", "api_shutdown")
 
             def _run() -> None:
-                service.request_shutdown(reason, exit_process=True)
+                facade = application(service)
+                if facade is not None:
+                    facade.request_shutdown(reason, exit_process=True)
+                else:
+                    service.request_shutdown(reason, exit_process=True)
 
             threading.Thread(target=_run, daemon=True, name="api-shutdown").start()
             return {"status": "shutdown_started", "reason": reason, "web_host_alive": False}
@@ -211,6 +235,9 @@ class SilworxController:
                 raise HTTPException(
                     status_code=403, detail="SILworX disconnect is allowed from localhost only"
                 )
+            facade = application(service)
+            if facade is not None:
+                return facade.close_silworx_connection()
             return service.close_silworx_connection()
 
         @app.post("/api/silworx/connect")
@@ -219,6 +246,9 @@ class SilworxController:
                 raise HTTPException(
                     status_code=403, detail="SILworX connect is allowed from localhost only"
                 )
+            facade = application(service)
+            if facade is not None:
+                return facade.resume_silworx_connection()
             return service.resume_silworx_connection()
 
 
@@ -231,6 +261,12 @@ class DeviceController:
 
         @app.get("/api/devices")
         def devices(view: str = "all"):
+            facade = application(service)
+            if facade is not None:
+                try:
+                    return facade.list_devices(view)
+                except Exception:
+                    return []
             try:
                 return service.db.list_devices(view=view)
             except Exception:
@@ -246,7 +282,15 @@ class CatalogController:
 
         @app.get("/api/archives")
         def archives():
+            facade = application(service)
+            if facade is not None:
+                try:
+                    return facade.list_archives()
+                except Exception:
+                    return []
             try:
+                from prooftest.annex_list_archive import list_list_archives
+
                 return list_list_archives(service.config)
             except Exception:
                 return []
@@ -255,7 +299,14 @@ class CatalogController:
         def create_archive(request: Request):
             if not _is_local_client(request):
                 raise HTTPException(status_code=403, detail="Archive is allowed from localhost only")
+            from prooftest.annex_list_archive import ListArchiveError
+
             try:
+                facade = application(service)
+                if facade is not None:
+                    return facade.create_archive()
+                from prooftest.annex_list_archive import create_list_archive
+
                 return create_list_archive(service.db, service.config)
             except ListArchiveError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -266,7 +317,14 @@ class CatalogController:
         def restore_archive(request: Request, archive_id: str = ""):
             if not _is_local_client(request):
                 raise HTTPException(status_code=403, detail="Restore is allowed from localhost only")
+            from prooftest.annex_list_archive import ListArchiveError
+
             try:
+                facade = application(service)
+                if facade is not None:
+                    return facade.restore_archive(archive_id)
+                from prooftest.annex_list_archive import restore_list_archive
+
                 return restore_list_archive(service.db, service.config, archive_id)
             except ListArchiveError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -277,6 +335,8 @@ class CatalogController:
         async def upload_restore(request: Request, file: UploadFile = File(...)):
             if not _is_local_client(request):
                 raise HTTPException(status_code=403, detail="Restore is allowed from localhost only")
+            from prooftest.annex_list_archive import ListArchiveError
+
             filename = file.filename or "restore.bin"
             suffix = Path(filename).suffix or ".bin"
             fd, tmp_name = tempfile.mkstemp(prefix="list_restore_", suffix=suffix)
@@ -285,6 +345,11 @@ class CatalogController:
             try:
                 content = await file.read()
                 tmp_path.write_bytes(content)
+                facade = application(service)
+                if facade is not None:
+                    return facade.restore_archive_upload(tmp_path, filename)
+                from prooftest.annex_list_archive import restore_from_uploaded_file
+
                 return restore_from_uploaded_file(service.db, service.config, tmp_path, filename)
             except ListArchiveError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -297,7 +362,14 @@ class CatalogController:
         def keep_opc_devices(request: Request, archive: bool = True):
             if not _is_local_client(request):
                 raise HTTPException(status_code=403, detail="Clear is allowed from localhost only")
+            from prooftest.annex_list_archive import ListArchiveError
+
             try:
+                facade = application(service)
+                if facade is not None:
+                    return facade.clear_keep_opc_only(archive_first=archive)
+                from prooftest.annex_list_archive import clear_keep_opc_only
+
                 return clear_keep_opc_only(service.db, service.config, archive_first=archive)
             except ListArchiveError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -319,6 +391,13 @@ class ReportController:
             project: Optional[str] = None,
             device_id: Optional[str] = None,
         ):
+            facade = application(service)
+            if facade is not None:
+                return facade.list_reports(
+                    device, results_type, project=project, device_id=device_id
+                )
+            from prooftest.annex_pdf_generation import list_reports_for_device
+
             return list_reports_for_device(
                 service.config.report_output,
                 device,
@@ -329,6 +408,14 @@ class ReportController:
 
         @app.get("/api/reports/open")
         def open_report(path: str):
+            facade = application(service)
+            if facade is not None:
+                code, resolved = facade.open_report(path)
+                if code == 403:
+                    raise HTTPException(status_code=403, detail="Path not allowed")
+                if code == 404 or not resolved:
+                    raise HTTPException(status_code=404, detail="Report not found")
+                return FileResponse(resolved)
             file_path = Path(path).resolve()
             output_root = service.config.report_output.resolve()
             mirror_root = service.config.report_mirror.resolve()
@@ -356,6 +443,21 @@ class AlarmController:
 
         @app.get("/api/alarms")
         def alarms():
+            facade = application(service)
+            if facade is not None:
+                now = time.monotonic()
+                cached_at = float(ctx.alarms_cache.get("cached_at") or 0.0)
+                if now - cached_at <= ctx.alarms_cache_ttl_sec:
+                    cached_rows = ctx.alarms_cache.get("alarms") or []
+                    return {
+                        "alarms": cached_rows,
+                        "popups": service.alarms.pop_pending_popups(),
+                    }
+                payload = facade.list_alarms()
+                ctx.alarms_cache["alarms"] = payload.get("alarms") or []
+                ctx.alarms_cache["cached_at"] = time.monotonic()
+                return payload
+
             now = time.monotonic()
             cached_rows = (
                 ctx.alarms_cache.get("alarms")
@@ -403,6 +505,12 @@ class AlarmController:
         def acknowledge_alarm(request: Request, alarm_id: int):
             if not _is_local_client(request):
                 raise HTTPException(status_code=403, detail="Acknowledge is allowed from localhost only")
+            facade = application(service)
+            if facade is not None:
+                row = facade.acknowledge_alarm(alarm_id)
+                if not row:
+                    raise HTTPException(status_code=404, detail="Alarm not found")
+                return {"id": alarm_id, "acknowledged": True}
             row = service.db.acknowledge_alarm(alarm_id)
             if not row:
                 raise HTTPException(status_code=404, detail="Alarm not found")
@@ -416,6 +524,13 @@ class AlarmController:
         def reset_alarms(request: Request):
             if not _is_local_client(request):
                 raise HTTPException(status_code=403, detail="Reset is allowed from localhost only")
+            facade = application(service)
+            if facade is not None:
+                try:
+                    facade.reset_alarms()
+                except Exception as exc:
+                    raise HTTPException(status_code=500, detail=str(exc)) from exc
+                return {"reset": True}
             try:
                 service.db.reset_alarms()
             except Exception as exc:

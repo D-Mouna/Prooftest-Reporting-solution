@@ -1,0 +1,301 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html lang="en">
+<head>
+<meta http-equiv="content-type" content="text/html; charset=utf-8">
+<meta content="HIMA Paul Hildebrandt GmbH" name="author">
+<link rel="icon" href="img/favicon.ico">
+<link rel="stylesheet" href="img/report.css">
+<link rel="stylesheet" href="img/bitmasks-list.css">
+<style>
+
+/* Specific ENUMs */
+
+.yesno::before { display: inline-block; content: "Unknown" }
+.yesno-False::after { content: "No"; }
+.yesno-True::after { content: "Yes"; }
+.yesno.yesno-False::before,
+.yesno.yesno-True::before { content: ""; display: none; }
+
+.automan-summary::before { display: inline-block; content: "Unknown" }
+.automan-summary-1::after { content: "Automatic"; }
+.automan-summary-2::after { content: "Manual"; }
+.automan-summary.automan-summary-1::before,
+.automan-summary.automan-summary-2::before { content: ""; display: none; }
+
+.proof-summary::before { display: inline-block; content: "Unknown" }
+.proof-summary-False::after { content: "Successful"; }
+.proof-summary-True::after { content: "Test finished with faults"; }
+.proof-summary.proof-summary-False::before,
+.proof-summary.proof-summary-True::before { content: ""; display: none; }
+
+.summary::before { display: inline-block; content: "Unknown" }
+.summary-809::after { content: "Successful"; }
+.summary-33161::after { content: "Not done"; }
+.summary.summary-809::before,
+.summary.summary-33161::before { content: ""; display: none; }
+
+</style>
+</head>
+<body>
+
+<!-- Page 1 -->
+<div class="page">
+	<div class="header">
+		<div class="header-left">
+			<div class="report">Partial Stroke Test Report</div>
+			<div class="device">SAMSON 3730-3</div>
+		</div>
+		<div class="header-center"><img src="img/himalogo.png"></div>
+		<div class="header-right"><img src="img/salogo.png"></div>
+	</div>
+	
+	<div class="caption operator">Plant operator: $(Act_User)</div>
+	<div class="value">
+		<div class="value-left">Date/Time (UTC)</div>
+		<div class="value-center">$(Test_starttime)</div>
+	</div>
+	<hr/>
+	
+	<div class="value">
+		<div class="value-left">HIMA system tag</div>
+		<div class="value-center">$(HIMA_system_tag)</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Serial number</div>
+		<div class="value-center">$(Serial_number)</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Device tag</div>
+		<div class="value-center">$(Device_tag)</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Device tag (long)</div>
+		<div class="value-centerright">$(Device_tag_long)</div>
+	</div>
+
+	<div class="caption">Device information</div>
+	<div class="value">
+		<div class="value-left">Device name</div>
+		<div class="value-center">$(Device_type_extended)</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Device ID</div>
+		<div class="value-center">$(Device_ID)</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Manufacturer</div>
+		<div class="value-center">$(Manufacturer)</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Device revision</div>
+		<div class="value-center">$(Device_revision)</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Hardware revision</div>
+		<div class="value-center">$(Hardware_revision)</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Software revision</div>
+		<div class="value-center">$(Software_revision)</div>
+	</div>
+
+	<div class="caption">Partial stroke test results</div>
+	<div class="value">
+		<div class="value-left">Summary</div>
+		<div class="value-center">$(Test_result)</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Date/Time start proof test</div>
+		<div class="value-center">$(Test_starttime)</div>
+	</div>
+	<div class="value">
+		<div class="value-left">Date/Time end proof test</div>
+		<div class="value-center">$(Test_endtime)</div>
+	</div>
+	<hr/>
+</div>
+
+
+<!-- Page 2 -->
+<div class="page">
+	<div class="header">
+		<div class="header-left">
+			<div class="report">Partial Stroke Test Report</div>
+			<div class="device">SAMSON 3730-3</div>
+		</div>
+		<div class="header-center"><img src="img/himalogo.png"></div>
+		<div class="header-right"><img src="img/salogo.png"></div>
+	</div>
+
+	<div class="caption operator">Plant operator: $(Act_User)</div>
+	<hr/>
+	
+	<div class="value compact two-column">
+		<div class="value-left">Device ID</div>
+		<div class="value-right">$(Device_ID)</div>
+	</div>
+	<div class="value compact two-column">
+		<div class="value-left">Device tag</div>
+		<div class="value-right">$(Device_tag)</div>
+	</div>
+	<div class="value compact two-column">
+		<div class="value-left">Date/Time</div>
+		<div class="value-right">$(Test_starttime)</div>
+	</div>
+	
+
+	<div class="caption">Operation Mode after Test</div>
+	<div class="value">
+		<div class="value-left">Mode</div>
+		<div class="value-center automan-summary automan-summary-$(Mode)"></div>
+	</div>
+
+
+	<div class="caption">Device status summary</div>
+	<div class="text">
+		Device status
+	</div>
+	<hr class="single"/>
+	<hr class="single"/>
+	<div class="flags flags-$(Device_status)">
+		<div class="value compact two-column">
+			<div class="value-left">Primary Variable Out of Limits</div>
+			<div class="value-right flag flag-0" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Non-Primary Variable Out of Limits</div>
+			<div class="value-right flag flag-1" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Loop Current Saturated</div>
+			<div class="value-right flag flag-2" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Loop Current Fixed</div>
+			<div class="value-right flag flag-3" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">More Status Available</div>
+			<div class="value-right flag flag-4" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Cold Start</div>
+			<div class="value-right flag flag-5" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Configuration Changed</div>
+			<div class="value-right flag flag-6" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Device Malfunction</div>
+			<div class="value-right flag flag-7" data-1="Fault" data-0="OK"></div>
+		</div>
+	</div>
+</div>
+
+<!-- Page 3 -->
+<div class="page">
+
+	<div class="header">
+		<div class="header-left">
+			<div class="report">Partial Stroke Test Report</div>
+			<div class="device">SAMSON 3730-3</div>
+		</div>
+		<div class="header-center"><img src="img/himalogo.png"></div>
+		<div class="header-right"><img src="img/salogo.png"></div>
+	</div>
+
+	<div class="caption operator">Plant operator: $(Act_User)</div>
+	<hr/>	
+	<div class="value compact two-column">
+		<div class="value-left">Device ID</div>
+		<div class="value-right">$(Device_ID)</div>
+	</div>
+	<div class="value compact two-column">
+		<div class="value-left">Device tag</div>
+		<div class="value-right">$(Device_tag)</div>
+	</div>
+	<div class="value compact two-column">
+		<div class="value-left">Date/Time (UTC)</div>
+		<div class="value-right">$(Test_starttime)</div>
+	</div>
+	
+	<div class="caption">Device and verification information</div>
+	<div class="flags flags-$(Error_code_Byte1)">
+	
+		<div class="value compact two-column">
+			<div class="value-left">Error Code (dez)</div>
+			<div class="value-right">$(Error_code)</div>
+		</div>
+		<hr class="single"/>
+		<hr class="single"/>
+		
+		<div class="value compact two-column">
+			<div class="value-left">Sequence aborted (Interlock input activated)</div>
+			<div class="value-right flag flag-0" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">HART Communication Timeout</div>
+			<div class="value-right flag flag-1" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Communication to HART Package Timeout</div>
+			<div class="value-right flag flag-2" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">HART Command Error (Response Code is not 0)</div>
+			<div class="value-right flag flag-3" data-1="Fault" data-0="OK"></div>
+		</div>
+	</div>
+    <hr class="single"/>
+    <hr class="single"/>
+	
+	<div class="flags flags-$(Error_code_Byte2)">
+		<div class="value compact two-column">
+			<div class="value-left">Device identification: Device Type error</div>
+			<div class="value-right flag flag-0" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Device identification: Device Revision error</div>
+			<div class="value-right flag flag-1" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Device identification: Device ID error</div>
+			<div class="value-right flag flag-2" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Transmitter Settings: Write Protection Active</div>
+			<div class="value-right flag flag-3" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">Read Parameters: Parameter Check Error</div>
+			<div class="value-right flag flag-4" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">PST: Test Timeout</div>
+			<div class="value-right flag flag-5" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">PST: Test Not Started</div>
+			<div class="value-right flag flag-6" data-1="Fault" data-0="OK"></div>
+		</div>
+		<div class="value compact two-column">
+			<div class="value-left">PST: Feedback Monitoring Failed</div>
+			<div class="value-right flag flag-7" data-1="Fault" data-0="OK"></div>
+		</div>
+	</div>
+    <hr class="dotted"/>
+	
+	<div class="flags flags-$(Error_code_Byte3)">
+
+		<div class="value compact two-column">
+			<div class="value-left">PST: Test Not Successful</div>
+			<div class="value-right flag flag-0" data-1="Fault" data-0="OK"></div>
+		</div>
+	</div>
+    	<hr/>
+	<div class="page-footer-text">Notes:</div>
+
+</div>
+</body>
+</html>

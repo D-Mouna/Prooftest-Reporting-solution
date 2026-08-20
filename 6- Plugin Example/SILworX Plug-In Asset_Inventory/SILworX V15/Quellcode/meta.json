@@ -1,0 +1,12 @@
+[
+	{
+		"name": "hima.asset_inventory",
+		"hash": "AE682A36F20A5A5667149F0F5F317AE11C2DB39420C28E93003A829CBEC8B468",
+		"exec": "Asset_inventory.exe",
+		"author": "Application Development (APD)",
+		"vendor": "HIMA Paul Hildebrandt GmbH",
+		"license": "Plug-In Feature license and SILworX API license",
+		"description": "The plug-in reads data from SILworX, the open project and the running controller and saves the collected data in a CSV file for further processing",
+		"version": "1.2-0"
+	}
+]
