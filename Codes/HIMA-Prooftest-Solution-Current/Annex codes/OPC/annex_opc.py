@@ -322,7 +322,13 @@ class OpcManager:
             return best
 
     def find_running_path(self, server: str, device_tag: str) -> Optional[str]:
-        """Return OTS/OPC ProofTest.{TAG}.Running when present on ``server``."""
+        """Return OTS/OPC ProofTest.{TAG}.Running when present on ``server``.
+
+        Also accepts ``…ProofTest.Global Vars.{TAG}.Running`` used by some X-OPC layouts.
+        """
+        tag = str(device_tag or "").strip()
+        if not tag or "." in tag:
+            return None
         tags: List[str] = []
         with self._lock:
             for key, cached in self._tags_cache.items():
@@ -331,14 +337,18 @@ class OpcManager:
                     break
         if not tags:
             try:
-                tags = self.list_all_tags(server)
+                tags = list(self.list_all_tags(server) or [])
             except Exception as exc:
                 log.debug("find_running_path browse %s failed: %s", server, exc)
                 tags = []
+        tag_set = set(tags)
         for branch in ("OTS ProofTest", "OPC ProofTest"):
-            item = f"{branch}.{device_tag}.Running"
-            if item in tags:
-                return item
+            for item in (
+                f"{branch}.{tag}.Running",
+                f"{branch}.Global Vars.{tag}.Running",
+            ):
+                if item in tag_set:
+                    return item
         return None
 
     def health_snapshot(self) -> List[OpcServerInfo]:
