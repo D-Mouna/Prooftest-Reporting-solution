@@ -4,7 +4,7 @@
 |-------|--------|
 | **Document** | Cumulative change log for solution **code** archives |
 | **Active tree** | [HIMA-Prooftest-Solution-Current](./HIMA-Prooftest-Solution-Current/) |
-| **Current `VERSION.json`** | **1.73** (SPEC 1.64) |
+| **Current `VERSION.json`** | **1.74** (SPEC 1.64) |
 | **Paired spec** | [SPEC-001-v1.64-...](../Specifications/SPEC-001-v1.64-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) |
 | **Location** | `C:\Users\Administrator\Documents\Report Solution\Codes` |
 | **Filename** | `Code History of Modifications.md` |
@@ -27,6 +27,8 @@
 
 | Code / archive | Date | Summary |
 |----------------|------|---------|
+| **Current → 1.74** | 2026-08-20 | 100% Presentation→Application; RefreshCatalog in CatalogService |
+| Archive v1.73 | 2026-08-20 | Snapshot before layer purity |
 | **Current → 1.73** | 2026-08-20 | First-run Desktop shortcut “HIMA Prooftest Report”; open-UI script in Dev tools |
 | Archive v1.72 | 2026-08-20 | Snapshot before Desktop UI shortcut |
 | **Current → 1.72** | 2026-08-20 | Move `sync_gui_images.ps1` into `Dev tools/` with usage README |
@@ -101,6 +103,12 @@
 ---
 
 ## Collected modifications (newest first)
+
+### Version 1.74 (2026-08-20)
+
+**Paired SPEC:** v1.64. Archive before change: v1.73.
+
+Enforce layer purity: Presentation controllers call `ApplicationFacade` only (no `service.db` / annex fallbacks). Move production `RefreshCatalog` body into `CatalogService.run_station_refresh`; WorkerHost `refresh` delegates. Gate 11 attaches a facade mock on `service.app`.
 
 ### Version 1.73 (2026-08-20)
 

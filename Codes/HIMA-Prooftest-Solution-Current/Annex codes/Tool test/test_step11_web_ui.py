@@ -30,6 +30,110 @@ TEST_TAG = "GATE11-UI-DEVICE"
 RESULTS_TYPE = "X-HART_E+H_PMx7xB_Results"
 
 
+def _alarms_payload(service: MagicMock) -> dict:
+    try:
+        keys = service.alarms.active_error_keys()
+        active_keys = set(keys) if isinstance(keys, (set, list, tuple, frozenset)) else set()
+    except Exception:
+        active_keys = set()
+    enriched = []
+    for row in service.db.list_recent_alarms():
+        item = dict(row)
+        key = item.get("error_key") or f"{item.get('step')}|{str(item.get('message') or '')[:120]}"
+        item["error_key"] = key
+        item["acknowledged"] = bool(item.get("acknowledged"))
+        item["active"] = key in active_keys
+        enriched.append(item)
+    return {
+        "alarms": enriched,
+        "popups": list(service.alarms.pop_pending_popups()),
+    }
+
+
+def _attach_application_facade(service: MagicMock) -> object:
+    """Wire a plain Application facade stand-in — Presentation has no DB/annex fallbacks."""
+    from prooftest.annex_pdf_generation import list_reports_for_device
+
+    class _TestFacade:
+        def __init__(self) -> None:
+            self._host = service
+            self.config = service.config
+            self.alarms = service.alarms
+            self.engine_running = bool(getattr(service, "engine_running", True))
+            self._stopped = bool(getattr(service, "_stopped", False))
+            self._starting = bool(getattr(service, "_starting", False))
+
+        def get_engine_status(self):
+            return service.health()
+
+        def list_devices(self, view: str = "all"):
+            try:
+                return list(service.db.list_devices(view=view))
+            except TypeError:
+                return list(service.db.list_devices())
+
+        def list_running_tests(self):
+            return list(service.db.list_running_tests())
+
+        def list_test_history(self):
+            return list(service.db.list_test_history())
+
+        def list_alarms(self):
+            return _alarms_payload(service)
+
+        def acknowledge_alarm(self, alarm_id: int):
+            return service.db.acknowledge_alarm(alarm_id)
+
+        def reset_alarms(self):
+            return service.db.reset_alarms()
+
+        def refresh_catalog(self):
+            return service.refresh(manual=True)
+
+        def start_engine(self):
+            return service.start()
+
+        def stop_engine(self, reason: str = "ui_stop"):
+            return None
+
+        def request_stop_flags(self, reason: str):
+            return service.request_stop_flags(reason)
+
+        def request_shutdown(self, reason: str, *, exit_process: bool = True):
+            return service.request_shutdown(reason, exit_process=exit_process)
+
+        def list_archives(self):
+            return []
+
+        def create_archive(self):
+            return {"ok": True}
+
+        def restore_archive(self, archive_id: str):
+            return {"ok": True}
+
+        def restore_archive_upload(self, path, filename: str):
+            return {"ok": True}
+
+        def clear_keep_opc_only(self, *, archive_first: bool = True):
+            return {"ok": True}
+
+        def list_reports(self, device, results_type=None, project=None, device_id=None):
+            return list_reports_for_device(
+                service.config.report_output,
+                device,
+                results_type=results_type,
+                project=project,
+                device_id=device_id,
+            )
+
+        def open_report(self, path: str):
+            return 200, path
+
+    facade = _TestFacade()
+    service.app = facade
+    return facade
+
+
 def test_static_assets() -> int:
     required = ("index.html", "app.js", "style.css", "ui-paths.js")
     missing = [name for name in required if not (STATIC_DIR / name).is_file()]
@@ -137,6 +241,10 @@ def test_api_routes() -> int:
         "acknowledged": True,
     }
     service.refresh = MagicMock(return_value={})
+    service.request_stop_flags = MagicMock()
+    service.request_shutdown = MagicMock()
+    service.start = MagicMock()
+    _attach_application_facade(service)
 
     client = TestClient(create_app(service))
     page = client.get("/").text
@@ -265,6 +373,7 @@ def test_reports_results_type() -> int:
     service.config.report_mirror = mirror
     service.db.list_recent_alarms.return_value = []
     service.alarms.pop_pending_popups.return_value = []
+    _attach_application_facade(service)
 
     client = TestClient(create_app(service))
     scoped = client.get(

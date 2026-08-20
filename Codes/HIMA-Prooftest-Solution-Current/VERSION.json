@@ -2,7 +2,7 @@
   "spec_id": "SPEC-001",
   "spec_version": "1.64",
   "status": "current",
-  "code_version": "1.73",
-  "description": "Dev tools open_graphic_interface.ps1 is Desktop shortcut target; first run creates HIMA Prooftest Report.lnk on Desktop.",
+  "code_version": "1.74",
+  "description": "100% pure Presentation→Application: controllers call ApplicationFacade only; RefreshCatalog owned by CatalogService.run_station_refresh.",
   "code_folder": "HIMA-Prooftest-Solution-Current"
 }

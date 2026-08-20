@@ -9,10 +9,6 @@ from prooftest.alarms import AlarmManager, AlarmRecord
 from prooftest.config import AppConfig
 from prooftest.annex_database import Database
 from prooftest.step01_setup import ensure_first_run, sync_results_type_folders_from_catalogue
-from prooftest.step03_device_list import (
-    sync_device_list_case1_via_api,
-    sync_device_list_from_opc,
-)
 from prooftest.step04_opc import OpcManager
 from prooftest.step05_detection import ProoftestMonitor
 from prooftest.results_csv import ResultsStructure, load_all_structures
@@ -410,65 +406,10 @@ class ProoftestService:
         perform_graceful_shutdown(self, reason)
 
     def refresh(self, manual: bool = False) -> Dict[str, object]:
-        if self._stop.is_set() or self._stopped:
-            return {}
-        if manual:
-            self.alarms.clear_shown_on_refresh()
-        try:
-            self._opc_servers = self.opc.discover_servers()
-            if manual:
-                self.opc.invalidate_cache()
-            if not self._opc_servers:
-                self.alarms.raise_alarm("S4", "No X-OPC server detected on host", action="RefreshCatalog")
-        except Exception as exc:
-            self.alarms.raise_alarm("P3", "OPC discovery failed", cause=str(exc))
-
-        if self._stop.is_set() or self._stopped:
-            return {}
-
-        active_types: list[str] = []
-        device_source = ""
-        # Unified path: SILworX API and X-OPC run together; merge into one list.
-        active_types, device_source = sync_device_list_case1_via_api(
-            self.config,
-            self.db,
-            self.structures,
-            self._case1_sync,
-            self.opc,
-        )
-        if self._stop.is_set() or self._stopped:
-            return {}
-        self.db.set_service_state("device_list_source", device_source)
-        self.db.sync_schema_case1(self.structures, active_types or list(self.structures.keys()))
-
-        if self._stop.is_set() or self._stopped:
-            return {}
-        try:
-            self._case1_sync.commit()
-        except Exception as exc:
-            log.warning("Sync marker commit failed: %s", exc)
-        try:
-            self._publish_silworx_state()
-        except Exception as exc:
-            log.warning("Publish SILworX state failed: %s", exc)
-        self.db.set_service_state("deployment_case", "1")
-        self.db.set_service_state("opc_servers", str(len(self._opc_servers)))
-        self.db.set_service_state("opc_server_list", ";".join(self._opc_servers))
-        self.db.set_service_state("active_devices", str(len(self.db.list_active_devices())))
-        self.db.set_service_state("opc_devices", str(self.db.count_opc_devices()))
-        result = {
-            "opc_servers": len(self._opc_servers),
-            "active_devices": len(self.db.list_active_devices()),
-            "opc_devices": self.db.count_opc_devices(),
-            "structures_loaded": len(self.structures),
-            "device_list_source": device_source,
-        }
-        self._cached_device_counts = (int(result["active_devices"]), int(result["opc_devices"]))
-        try:
-            self._cached_service_state = self.db.get_service_state()
-        except Exception:
-            pass
-        return result
+        """WorkerHost entry — delegates RefreshCatalog to Application CatalogService."""
+        if self.app is not None:
+            return self.app.catalog.run_station_refresh(self, manual=manual)
+        return {}
 
     def _poll_loop(self, generation: int) -> None:
         while not self._stop.is_set() and generation == self._loop_generation:

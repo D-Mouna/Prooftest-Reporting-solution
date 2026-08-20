@@ -95,8 +95,9 @@ class ApplicationFacade:
     def get_engine_status(self) -> dict:
         return self._host.health()
 
-    def refresh_catalog(self) -> None:
-        self._host.refresh(manual=True)
+    def refresh_catalog(self) -> dict:
+        """RefreshCatalog — Application owns the use case; WorkerHost is the data plane."""
+        return self.catalog.run_station_refresh(self._host, manual=True)
 
     # --- SILworX connection ---
 

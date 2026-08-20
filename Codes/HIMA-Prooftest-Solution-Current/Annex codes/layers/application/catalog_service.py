@@ -150,3 +150,91 @@ class CatalogService:
             self.store.reconcile(active_ids)
         except Exception as exc:
             self.alarms.raise_alarm(STEP_S3, "ReconcileCatalog", str(exc))
+
+    def run_station_refresh(self, host: object, *, manual: bool = False) -> dict:
+        """
+        Production RefreshCatalog use case (SILworX API + OPC merge, schema, markers).
+
+        Presentation must call ApplicationFacade.refresh_catalog() only.
+        WorkerHost may call this through the facade / ``host.refresh`` delegate.
+        """
+        import logging
+        import time
+
+        from prooftest.step03_device_list import sync_device_list_case1_via_api
+
+        log = logging.getLogger(__name__)
+        stop = getattr(host, "_stop", None)
+        if getattr(host, "_stopped", False) or (stop is not None and stop.is_set()):
+            return {}
+        if manual:
+            try:
+                host.alarms.clear_shown_on_refresh()
+            except Exception:
+                pass
+
+        try:
+            host._opc_servers = host.opc.discover_servers()
+            if manual:
+                host.opc.invalidate_cache()
+            if not host._opc_servers:
+                host.alarms.raise_alarm(
+                    "S4", "No X-OPC server detected on host", action="RefreshCatalog"
+                )
+        except Exception as exc:
+            host.alarms.raise_alarm("P3", "OPC discovery failed", cause=str(exc))
+
+        if getattr(host, "_stopped", False) or (stop is not None and stop.is_set()):
+            return {}
+
+        active_types, device_source = sync_device_list_case1_via_api(
+            host.config,
+            host.db,
+            host.structures,
+            host._case1_sync,
+            host.opc,
+        )
+        if getattr(host, "_stopped", False) or (stop is not None and stop.is_set()):
+            return {}
+        host.db.set_service_state("device_list_source", device_source)
+        host.db.sync_schema_case1(
+            host.structures, active_types or list(host.structures.keys())
+        )
+
+        if getattr(host, "_stopped", False) or (stop is not None and stop.is_set()):
+            return {}
+        try:
+            host._case1_sync.commit()
+        except Exception as exc:
+            log.warning("Sync marker commit failed: %s", exc)
+        try:
+            host._publish_silworx_state()
+        except Exception as exc:
+            log.warning("Publish SILworX state failed: %s", exc)
+        host.db.set_service_state("deployment_case", "1")
+        host.db.set_service_state("opc_servers", str(len(host._opc_servers)))
+        host.db.set_service_state("opc_server_list", ";".join(host._opc_servers))
+        host.db.set_service_state("active_devices", str(len(host.db.list_active_devices())))
+        host.db.set_service_state("opc_devices", str(host.db.count_opc_devices()))
+        result = {
+            "opc_servers": len(host._opc_servers),
+            "active_devices": len(host.db.list_active_devices()),
+            "opc_devices": host.db.count_opc_devices(),
+            "structures_loaded": len(host.structures),
+            "device_list_source": device_source,
+        }
+        host._cached_device_counts = (
+            int(result["active_devices"]),
+            int(result["opc_devices"]),
+        )
+        try:
+            host._cached_service_state = host.db.get_service_state()
+        except Exception:
+            pass
+        # Keep in-memory Application catalog aligned when possible.
+        try:
+            self.refresh_catalog()
+        except Exception:
+            pass
+        _ = time  # reserved for future timing metrics
+        return result
