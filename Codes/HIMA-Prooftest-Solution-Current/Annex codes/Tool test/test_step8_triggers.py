@@ -14,7 +14,8 @@ from prooftest.step07_triggers import Case1SyncTriggers, commit_marker, session_
 
 def main() -> int:
     cfg = AppConfig.load(ROOT / "solution.ini")
-    markers = ROOT / "Annex codes" / "data" / "sync_markers"
+    markers = ROOT / "Annex codes" / "Tool test" / "data" / "sync_markers"
+    markers.mkdir(parents=True, exist_ok=True)
     sync = Case1SyncTriggers(config=cfg, markers_dir=markers)
     sync.start_monitor()
     sync.commit()
@@ -28,10 +29,8 @@ def main() -> int:
         print(f"Plugin ports: {sync.plugin_monitor_summary()}")
     print(f"Fired triggers (baseline): {triggers or 'none'}")
 
-    plugin_script = ROOT / "Annex codes" / "Plugin" / "run_plugins_all.ps1"
-    run_single = ROOT / "Annex codes" / "Plugin" / "run_plugin.ps1"
-    print(f"run_plugin.ps1 exists: {run_single.is_file()}")
-    print(f"run_plugins_all.ps1 exists: {plugin_script.is_file()}")
+    monitor = ROOT / "Annex codes" / "Plugin" / "annex_plugin_monitor.py"
+    print(f"annex_plugin_monitor.py exists: {monitor.is_file()}")
 
     if sync.active_session and "code_generation" in sync._enabled:
         key = f"session_{sync.active_session.session_id}_{sync.active_session.project_name}"

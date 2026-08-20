@@ -2,11 +2,11 @@
 
 | Field | Value |
 |-------|--------|
-| **Active runtime** | `Codes\HIMA-Prooftest-Solution-Current` (code **1.65**, SPEC **1.62**) |
+| **Active runtime** | `Codes\HIMA-Prooftest-Solution-Current` (code **1.67**, SPEC **1.64**) |
 | **Project root** | `C:\Users\Administrator\Documents\Report Solution` |
-| **Indexed** | 2026-08-19 |
+| **Indexed** | 2026-08-20 |
 | **Scope** | Folders **outside** `HIMA-Prooftest-Solution-Current` (archives, templates, predecessor trees) |
-| **Current-only index** | [Codes/HIMA-Prooftest-Solution-Current/Legacy-Code-Index.md](./Codes/HIMA-Prooftest-Solution-Current/Legacy-Code-Index.md) — unused code **inside** Current |
+| **Current cleanup index** | [Codes/HIMA-Prooftest-Solution-Current/Legacy-Code-Index.md](./Codes/HIMA-Prooftest-Solution-Current/Legacy-Code-Index.md) — unused / dead files **inside** Current (for cleaning the code tree) |
 
 > **Rule:** Edit **only** `HIMA-Prooftest-Solution-Current`. Everything below is legacy, reference, template, or archive — do not develop there unless explicitly restoring history.
 

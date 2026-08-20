@@ -26,7 +26,6 @@ _ANNEX_MODULES: dict[str, tuple[str, str]] = {
     "annex_pdf_generation": ("PDF generation", "annex_pdf_generation.py"),
     "annex_list_archive": ("Database", "annex_list_archive.py"),
     "annex_stop_service": ("Stop service", "annex_stop_service.py"),
-    "annex_start_service": ("Stop service", "annex_start_service.py"),
     "annex_silworx_cleanup": ("Stop service", "annex_silworx_cleanup.py"),
     "annex_plugin_monitor": ("Plugin", "annex_plugin_monitor.py"),
 }

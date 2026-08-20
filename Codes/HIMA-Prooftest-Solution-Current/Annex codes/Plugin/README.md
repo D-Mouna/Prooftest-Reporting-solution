@@ -21,15 +21,11 @@ There are **no** native plugin events for code generation or download — those 
 Development=prooftest_session_plugin
 ```
 
-## Optional: standalone plugin processes
+## Plugin runtime
 
-The **background service** runs its own plugin monitor (`plugin_monitor_enabled = true` in `solution.ini`).
-`run_plugins_all.ps1` is only needed for engineering/debug when the service is not running:
-
-```powershell
-cd "Annex codes\Plugin"
-.\run_plugins_all.ps1
-```
+The **background service** runs the plugin monitor (`annex_plugin_monitor.py`) when
+`plugin_monitor_enabled = true` in `solution.ini`. Standalone `annex_plugin.py` /
+`run_plugin*.ps1` helpers were removed; use the service monitor only.
 
 ## Triggers → API re-read
 

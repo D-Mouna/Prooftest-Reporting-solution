@@ -4,7 +4,7 @@
 |-------|--------|
 | **Document** | Cumulative change log for solution **code** archives |
 | **Active tree** | [HIMA-Prooftest-Solution-Current](./HIMA-Prooftest-Solution-Current/) |
-| **Current `VERSION.json`** | **1.67** (SPEC 1.64) |
+| **Current `VERSION.json`** | **1.73** (SPEC 1.64) |
 | **Paired spec** | [SPEC-001-v1.64-...](../Specifications/SPEC-001-v1.64-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) |
 | **Location** | `C:\Users\Administrator\Documents\Report Solution\Codes` |
 | **Filename** | `Code History of Modifications.md` |
@@ -27,6 +27,18 @@
 
 | Code / archive | Date | Summary |
 |----------------|------|---------|
+| **Current → 1.73** | 2026-08-20 | First-run Desktop shortcut “HIMA Prooftest Report”; open-UI script in Dev tools |
+| Archive v1.72 | 2026-08-20 | Snapshot before Desktop UI shortcut |
+| **Current → 1.72** | 2026-08-20 | Move `sync_gui_images.ps1` into `Dev tools/` with usage README |
+| Archive v1.71 | 2026-08-20 | Snapshot before Dev tools relocation |
+| **Current → 1.71** | 2026-08-20 | Remove standalone `annex_plugin.py` and `run_plugin*.ps1` |
+| Archive v1.70 | 2026-08-20 | Snapshot before standalone plugin removal |
+| **Current → 1.70** | 2026-08-20 | Remove `step02_database` shim; Gate 5 uses `annex_database` |
+| Archive v1.69 | 2026-08-20 | Snapshot before step02 shim removal |
+| **Current → 1.69** | 2026-08-20 | Tier B cleanup: remove stale data/, root logs, sync_markers, `__pycache__` |
+| Archive v1.68 | 2026-08-20 | Snapshot before Tier B cleanup |
+| **Current → 1.68** | 2026-08-20 | Remove unused `step06_reports.py` and `annex_start_service.py` |
+| Archive v1.67 | 2026-08-20 | Snapshot before dead-shim cleanup |
 | **Current → 1.67** | 2026-08-20 | OPC client inside Current `Annex codes/OPC/connection_opc.py`; sibling Report-Tool legacy |
 | Archive v1.66 | 2026-08-20 | Snapshot before OPC client move into Current |
 | **Current → 1.66** | 2026-08-20 | Full Application facade; Presentation → Application only; SilworxPort + OPC-only adapters |
@@ -89,6 +101,42 @@
 ---
 
 ## Collected modifications (newest first)
+
+### Version 1.73 (2026-08-20)
+
+**Paired SPEC:** v1.64. Archive before change: v1.72.
+
+Move `open_graphic_interface.ps1` into `Dev tools/`. On station setup (`ensure_first_run`), create Desktop shortcut **HIMA Prooftest Report.lnk** that runs that script (opens the web UI; service must already be running).
+
+### Version 1.72 (2026-08-20)
+
+**Paired SPEC:** v1.64. Archive before change: v1.71.
+
+Move optional branding helper `sync_gui_images.ps1` from solution root into `Dev tools/` with `Dev tools/README.md` clarifying it is not runtime. Prefer Documents (then Z:) asset path for `7- Images for the graphical interface`.
+
+### Version 1.71 (2026-08-20)
+
+**Paired SPEC:** v1.64. Archive before change: v1.70.
+
+Remove unused standalone SILworX plugin helpers: `Annex codes/Plugin/annex_plugin.py`, `run_plugin.ps1`, `run_plugins_all.ps1`. Production session handling remains `annex_plugin_monitor.py` inside the service.
+
+### Version 1.70 (2026-08-20)
+
+**Paired SPEC:** v1.64. Archive before change: v1.69.
+
+Remove unused `Tool Steps/step02_database.py` re-export shim. Retarget `test_step5_sql.py` to import `TEMPLATE_MAP` / `generate_missing_templates` from `prooftest.annex_database`.
+
+### Version 1.69 (2026-08-20)
+
+**Paired SPEC:** v1.64. Archive before change: v1.68.
+
+Remove stale Tier B clutter from Current: `Annex codes/data/`, root `sync_markers/`, root start/crash logs, and all `__pycache__`. Keep `Plugin/message_log.json` for review. Point Tool test `SYNC_MARKERS` at `Tool test/data/sync_markers`.
+
+### Version 1.68 (2026-08-20)
+
+**Paired SPEC:** v1.64. Archive before change: v1.67.
+
+Remove unused dead modules: `Tool Steps/step06_reports.py` (Step 6 re-export shim) and `Annex codes/Stop service/annex_start_service.py` (unused cold-start spawn). Drop `annex_start_service` from `prooftest/__init__.py` bootstrap map. Reports stay on `annex_pdf_generation`; auto-start stays on Task Scheduler → `run_service.ps1`.
 
 ### Version 1.67 (2026-08-20)
 

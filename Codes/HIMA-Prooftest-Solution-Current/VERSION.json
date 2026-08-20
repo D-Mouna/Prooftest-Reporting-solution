@@ -2,7 +2,7 @@
   "spec_id": "SPEC-001",
   "spec_version": "1.64",
   "status": "current",
-  "code_version": "1.67",
-  "description": "OPC Classic DA client moved into Current Annex codes/OPC/connection_opc.py; sibling Codes/Report-Tool is legacy (no out-of-tree OPC load).",
+  "code_version": "1.73",
+  "description": "Dev tools open_graphic_interface.ps1 is Desktop shortcut target; first run creates HIMA Prooftest Report.lnk on Desktop.",
   "code_folder": "HIMA-Prooftest-Solution-Current"
 }

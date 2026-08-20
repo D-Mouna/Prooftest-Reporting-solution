@@ -8,7 +8,8 @@ from pathlib import Path
 SOLUTION_ROOT = Path(__file__).resolve().parent.parent.parent
 TOOL_TEST_ROOT = Path(__file__).resolve().parent
 CONFIG_INI = SOLUTION_ROOT / "solution.ini"
-SYNC_MARKERS = SOLUTION_ROOT / "Annex codes" / "data" / "sync_markers"
+# Gate tests use a fixture dir under Tool test (not production station markers).
+SYNC_MARKERS = TOOL_TEST_ROOT / "data" / "sync_markers"
 TEST_DATA = TOOL_TEST_ROOT / "data"
 
 

@@ -11,8 +11,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import socket
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple
@@ -245,6 +248,77 @@ def persist_deployment_case(config: AppConfig, *, case: int = 1, reason: str = "
         log.warning("Cannot update solution.ini deployment_case: %s", exc)
 
 
+def ensure_desktop_ui_shortcut(config: AppConfig) -> None:
+    """
+    Ensure a Desktop shortcut ``HIMA Prooftest Report`` that opens the web UI.
+
+    Created on first run (and recreated if missing). Targets
+    ``Dev tools/open_graphic_interface.ps1`` so the port comes from ``solution.ini``.
+    """
+    _ = config
+    if sys.platform != "win32":
+        return
+
+    solution_root = Path(__file__).resolve().parent.parent
+    open_script = solution_root / "Dev tools" / "open_graphic_interface.ps1"
+    if not open_script.is_file():
+        log.warning("Desktop shortcut skipped — missing %s", open_script)
+        return
+
+    desktop = Path.home() / "Desktop"
+    if not desktop.is_dir():
+        desktop = Path(os.environ.get("USERPROFILE", str(Path.home()))) / "Desktop"
+    if not desktop.is_dir():
+        log.warning("Desktop shortcut skipped — Desktop folder not found")
+        return
+
+    lnk = desktop / "HIMA Prooftest Report.lnk"
+    if lnk.is_file():
+        return
+
+    # JSON strings are safe inside PowerShell -Command.
+    lnk_j = json.dumps(str(lnk))
+    script_j = json.dumps(str(open_script))
+    root_j = json.dumps(str(solution_root))
+    ps = f"""
+$ErrorActionPreference = 'Stop'
+$ws = New-Object -ComObject WScript.Shell
+$s = $ws.CreateShortcut({lnk_j})
+$s.TargetPath = 'powershell.exe'
+$s.Arguments = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ' + {script_j}
+$s.WorkingDirectory = {root_j}
+$s.Description = 'Open HIMA Prooftest Report web UI (service must be running)'
+$s.WindowStyle = 7
+$s.Save()
+"""
+    try:
+        completed = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                ps,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if lnk.is_file():
+            log.info("Created Desktop shortcut: %s", lnk)
+        else:
+            detail = (completed.stderr or completed.stdout or "").strip()
+            log.warning(
+                "Desktop shortcut was not created at %s%s",
+                lnk,
+                f" ({detail})" if detail else "",
+            )
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("Cannot create Desktop UI shortcut: %s", exc)
+
+
 def ensure_first_run(config: AppConfig, alarms: AlarmManager) -> None:
     """
     First-use station setup: unified mode, marker file, folder hierarchy.
@@ -280,6 +354,8 @@ def ensure_first_run(config: AppConfig, alarms: AlarmManager) -> None:
             payload["last_start_utc"] = datetime.now(timezone.utc).isoformat()
             _write_installation(marker, payload)
 
+        ensure_desktop_ui_shortcut(config)
+
         log.info(
             "First-run setup complete (unified mode, %d Results-type folders)",
             len(catalogue_types),
@@ -292,3 +368,8 @@ def ensure_first_run(config: AppConfig, alarms: AlarmManager) -> None:
             severity="Error",
             show_popup=True,
         )
+        # Still try to place the UI shortcut even if folder setup had issues.
+        try:
+            ensure_desktop_ui_shortcut(config)
+        except Exception:
+            pass

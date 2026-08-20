@@ -4,7 +4,9 @@
 
 Before any modification, archive this folder — run `..\archive_current.ps1`.
 
-**Unused / legacy code inside Current:** [Legacy-Code-Index.md](./Legacy-Code-Index.md)
+**Unused code inside Current (cleanup list):** [Legacy-Code-Index.md](./Legacy-Code-Index.md)
+
+**Dev-only helpers (not runtime):** [Dev tools/README.md](./Dev%20tools/README.md)
 
 ## Quick start
 
@@ -13,7 +15,7 @@ cd "Z:\Project\Report Solution\Codes\HIMA-Prooftest-Solution-Current"
 powershell -ExecutionPolicy Bypass -File .\run_service.ps1
 ```
 
-Web UI: **http://127.0.0.1:8080/**
+Web UI: **http://127.0.0.1:8080/** — or double-click the Desktop shortcut **HIMA Prooftest Report** (created on first service start).
 
 **Start / Stop in the UI:** Stop ends the Prooftest engine (OPC, SILworX API, plugin monitors) but **keeps the web page up** so you can Start again. Full process exit (for SILworX uninstall) uses `.\stop_service.ps1` or `POST /api/shutdown`.
 

@@ -12,9 +12,12 @@ setup_path()
 
 from prooftest.alarms import AlarmManager
 from prooftest.config import AppConfig
-from prooftest.annex_database import Database
+from prooftest.annex_database import (
+    TEMPLATE_MAP,
+    Database,
+    generate_missing_templates,
+)
 from prooftest.results_csv import RESULTS_TYPE_FILES, load_all_structures, structure_to_sql_table
-from prooftest.step02_database import TEMPLATE_MAP, generate_missing_templates
 
 META_COLS = {
     "Device_TAG",
