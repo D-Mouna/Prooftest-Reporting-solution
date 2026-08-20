@@ -159,7 +159,6 @@ class CatalogService:
         WorkerHost may call this through the facade / ``host.refresh`` delegate.
         """
         import logging
-        import time
 
         from prooftest.step03_device_list import sync_device_list_case1_via_api
 
@@ -231,10 +230,6 @@ class CatalogService:
             host._cached_service_state = host.db.get_service_state()
         except Exception:
             pass
-        # Keep in-memory Application catalog aligned when possible.
-        try:
-            self.refresh_catalog()
-        except Exception:
-            pass
-        _ = time  # reserved for future timing metrics
+        # Do NOT call self.refresh_catalog() here — that would dual-write via a second
+        # merge path (domain CatalogMerger) after step03 already updated the store.
         return result

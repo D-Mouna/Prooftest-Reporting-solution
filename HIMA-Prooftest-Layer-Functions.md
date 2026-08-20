@@ -4,7 +4,7 @@
 |-------|--------|
 | **Purpose** | Explain every function in Presentation, Application, Domain, and Adapters (ports) |
 | **Related** | Layered architecture (not MVC for the whole engine). Web GUI is MVC; engine is use cases + domain + ports |
-| **Identity** | `Device_TAG` (e.g. `100-FZT-001`) — one row, even if SILworX and OPC both see it |
+| **Identity** | Composite **DeviceId** = Project + Configuration + Resource + `Device_TAG` (e.g. same TAG in two projects = two rows). |
 
 **Devices** in diagrams = this program’s catalog (`DeviceProoftestResultList` + in-memory list), not a plant cabinet and not X-OPC.
 

@@ -4,7 +4,7 @@
 |-------|--------|
 | **Document** | Cumulative change log for solution **code** archives |
 | **Active tree** | [HIMA-Prooftest-Solution-Current](./HIMA-Prooftest-Solution-Current/) |
-| **Current `VERSION.json`** | **1.74** (SPEC 1.64) |
+| **Current `VERSION.json`** | **1.75** (SPEC 1.64) |
 | **Paired spec** | [SPEC-001-v1.64-...](../Specifications/SPEC-001-v1.64-HART-Prooftest-OPC-Collection-and-PDF-Reporting.md) |
 | **Location** | `C:\Users\Administrator\Documents\Report Solution\Codes` |
 | **Filename** | `Code History of Modifications.md` |
@@ -27,6 +27,8 @@
 
 | Code / archive | Date | Summary |
 |----------------|------|---------|
+| **Current → 1.75** | 2026-08-20 | Audit cleanup + docs pack; remove dual refresh writer; UI badge/sort |
+| Archive v1.74 | 2026-08-20 | Snapshot before audit cleanup |
 | **Current → 1.74** | 2026-08-20 | 100% Presentation→Application; RefreshCatalog in CatalogService |
 | Archive v1.73 | 2026-08-20 | Snapshot before layer purity |
 | **Current → 1.73** | 2026-08-20 | First-run Desktop shortcut “HIMA Prooftest Report”; open-UI script in Dev tools |
@@ -103,6 +105,12 @@
 ---
 
 ## Collected modifications (newest first)
+
+### Version 1.75 (2026-08-20)
+
+**Paired SPEC:** v1.64. Archive before change: v1.74.
+
+Post-architecture audit: stop dual catalog write (no domain `refresh_catalog` after step03 sync); UI sort + SILworX “this tool” badge wording; add `docs/` inventory, OLD-vs-NEW, cleanup, audits, security, as-built architecture.
 
 ### Version 1.74 (2026-08-20)
 

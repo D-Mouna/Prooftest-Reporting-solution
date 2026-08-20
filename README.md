@@ -19,6 +19,17 @@ Private repository for the **HIMA Automated Prooftest Reporting Solution**.
 
 Station runtime (not this git tree): `C:\HIMA Prooftest Reporting Tool\`
 
+## Architecture audit docs (2026-08-20)
+
+- [docs/IMPLEMENTATION-INVENTORY.md](./docs/IMPLEMENTATION-INVENTORY.md) — what was coded (Part A)
+- [docs/OLD-vs-NEW.md](./docs/OLD-vs-NEW.md) — OLD vs NEW behaviour (Part B)
+- [docs/CLEANUP-LOG.md](./docs/CLEANUP-LOG.md) — cleanup actions (Part C)
+- [docs/CODE-AUDIT.md](./docs/CODE-AUDIT.md) — code audit (Part D)
+- [docs/UI-UX-AUDIT.md](./docs/UI-UX-AUDIT.md) — UI/UX audit (Part E)
+- [docs/SECURITY-VULNERABILITY-REPORT.md](./docs/SECURITY-VULNERABILITY-REPORT.md) — security tests (Part F)
+- [docs/ARCHITECTURE-AS-BUILT.md](./docs/ARCHITECTURE-AS-BUILT.md) — as-built diagram
+- [docs/HOW-TO-RUN-TESTS.md](./docs/HOW-TO-RUN-TESTS.md) — test commands
+
 ## Versioning
 
 See `Codes/VERSIONING.md` and `Specifications/` for code vs SPEC numbers.

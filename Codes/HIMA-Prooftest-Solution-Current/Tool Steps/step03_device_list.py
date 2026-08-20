@@ -426,7 +426,9 @@ def sync_device_list_from_opc(
     )
 
 
-# Backward-compatible alias (former separate Case 2 entry point).
+# Backward-compatible alias (former separate Case 2 entry point) — DO NOT USE.
+# Unified mode calls sync_device_list_case1_via_api (API+OPC) or this function only
+# as OPC fallback inside that path. Prefer CatalogService / ApplicationFacade.
 sync_device_list_case2 = sync_device_list_from_opc
 
 

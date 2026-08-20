@@ -275,7 +275,7 @@ function renderHealth(data) {
     apiSession.project_name ||
     (apiConnected ? sil.silworx_project_name || sil.project_name || "" : "");
   const silworxStatus = String(data.silworx_status || "").toLowerCase();
-  const silText = silworxStatus === "running" ? "running" : "not connected";
+  const silText = silworxStatus === "running" ? "tool attached" : "tool not connected";
   const silState = silworxStatus === "running" ? "ok" : "warn";
 
   const queueState = (data.queue_depth || 0) > 10 ? "warn" : "";
@@ -295,9 +295,7 @@ function renderHealth(data) {
         ? "OPC"
         : data.device_list_source
           ? String(data.device_list_source)
-          : data.deployment_case != null
-            ? `unified (case ${data.deployment_case})`
-            : "unified";
+          : "unified";
 
   grid.innerHTML = [
     `<div class="health-row health-row-counts">
@@ -310,7 +308,7 @@ function renderHealth(data) {
     </div>`,
     `<div class="health-row health-row-mid">
       ${healthCard("Device list", sourceText, "")}
-      ${healthCard("SILworX", silText, silState)}
+      ${healthCard("SILworX (this tool)", silText, silState)}
       ${healthCard("Plugin session", pluginText, pluginState)}
       ${healthCard("Queue depth", String(data.queue_depth ?? 0), queueState)}
     </div>`,
@@ -463,6 +461,19 @@ async function loadDevices() {
     showListPlaceholder("report-list", NO_REPORT_TEXT);
     return;
   }
+
+  // Sort: Device_TAG, then Project, then OPC server (matches domain sort_device_dicts).
+  devices.sort((a, b) => {
+    const tag = String(a.device_tag || "").localeCompare(String(b.device_tag || ""), undefined, { sensitivity: "base" });
+    if (tag !== 0) return tag;
+    const proj = String(a.project || a.silworx_project || "").localeCompare(
+      String(b.project || b.silworx_project || ""),
+      undefined,
+      { sensitivity: "base" }
+    );
+    if (proj !== 0) return proj;
+    return String(a.opc_server || "").localeCompare(String(b.opc_server || ""), undefined, { sensitivity: "base" });
+  });
 
   const hint = document.getElementById("device-list-hint");
   const view = currentDeviceView();
