@@ -263,109 +263,130 @@ class CatalogService:
         Host still owns OPC server cache, schema sync, sync markers, and service_state.
         step03 sync_device_list_case1_via_api is NOT called.
         """
+        import time as _time
+
         stop = getattr(host, "_stop", None)
         if getattr(host, "_stopped", False) or (stop is not None and stop.is_set()):
             return {}
-        if manual:
-            try:
-                host.alarms.clear_shown_on_refresh()
-            except Exception:
-                pass
-
         try:
-            host._opc_servers = host.opc.discover_servers()
-            if manual:
-                # Re-browse tags only — do not disconnect live OPC clients (poll race).
-                inval = getattr(host.opc, "invalidate_tag_cache", None)
-                if callable(inval):
-                    inval()
-                else:
-                    host.opc.invalidate_cache()
-            if not host._opc_servers:
-                host.alarms.raise_alarm(
-                    "S4", "No X-OPC server detected on host", action="RefreshCatalog"
-                )
-        except Exception as exc:
-            host.alarms.raise_alarm("P3", "OPC discovery failed", cause=str(exc))
-
-        if getattr(host, "_stopped", False) or (stop is not None and stop.is_set()):
-            return {}
-
-        structures = getattr(host, "structures", {}) or {}
-        self.sync_types_from_structures(structures)
-        if not self.types.types and self.types_folder:
-            self.load_result_types()
-
-        devices = self.refresh_catalog()
-        if getattr(host, "_stopped", False) or (stop is not None and stop.is_set()):
-            return {}
-
-        api_rows = any(
-            bool(getattr(d, "project", None) or getattr(d, "configuration", None))
-            for d in devices
-        )
-        api_attached = False
-        try:
-            api_attached = bool(self.silworx.is_attached())
-        except Exception:
-            api_attached = False
-        api_ok = api_attached or api_rows
-        opc_ok = bool(getattr(host, "_opc_servers", None))
-        if api_ok and opc_ok:
-            device_source = "api+opc"
-        elif api_ok:
-            device_source = "api"
-        else:
-            device_source = "opc_fallback"
-
-        active_types = sorted({d.results_type for d in devices if d.results_type})
-        try:
-            host.db.set_service_state("device_list_source", device_source)
-            host.db.sync_schema_case1(
-                host.structures, active_types or list(host.structures.keys())
-            )
-        except Exception as exc:
-            log.warning("Schema / device_list_source update failed: %s", exc)
-
-        try:
-            from prooftest.step01_setup import sync_device_report_folders
-
-            folder_pairs = [
-                (d.device_tag, d.results_type) for d in devices if d.results_type
-            ]
-            if folder_pairs:
-                sync_device_report_folders(host.config, folder_pairs, host.db.alarms)
-        except Exception as exc:
-            log.warning("Report folder sync failed: %s", exc)
-
-        if getattr(host, "_stopped", False) or (stop is not None and stop.is_set()):
-            return {}
-        try:
-            host._case1_sync.commit()
-        except Exception as exc:
-            log.warning("Sync marker commit failed: %s", exc)
-        try:
-            host._publish_silworx_state()
-        except Exception as exc:
-            log.warning("Publish SILworX state failed: %s", exc)
-        host.db.set_service_state("deployment_case", "1")
-        host.db.set_service_state("opc_servers", str(len(host._opc_servers)))
-        host.db.set_service_state("opc_server_list", ";".join(host._opc_servers))
-        host.db.set_service_state("active_devices", str(len(host.db.list_active_devices())))
-        host.db.set_service_state("opc_devices", str(host.db.count_opc_devices()))
-        result = {
-            "opc_servers": len(host._opc_servers),
-            "active_devices": len(host.db.list_active_devices()),
-            "opc_devices": host.db.count_opc_devices(),
-            "structures_loaded": len(host.structures),
-            "device_list_source": device_source,
-        }
-        host._cached_device_counts = (
-            int(result["active_devices"]),
-            int(result["opc_devices"]),
-        )
-        try:
-            host._cached_service_state = host.db.get_service_state()
+            host.db.set_service_state("catalog_refresh", "1")
+            sync_fn = getattr(host, "_sync_health_caches_from_db", None)
+            if callable(sync_fn):
+                sync_fn()
         except Exception:
             pass
-        return result
+        try:
+            if manual:
+                try:
+                    host.alarms.clear_shown_on_refresh()
+                except Exception:
+                    pass
+
+            try:
+                host._opc_servers = host.opc.discover_servers()
+                if manual:
+                    # Re-browse tags only — do not disconnect live OPC clients (poll race).
+                    inval = getattr(host.opc, "invalidate_tag_cache", None)
+                    if callable(inval):
+                        inval()
+                    else:
+                        host.opc.invalidate_cache()
+                if not host._opc_servers:
+                    host.alarms.raise_alarm(
+                        "S4", "No X-OPC server detected on host", action="RefreshCatalog"
+                    )
+            except Exception as exc:
+                host.alarms.raise_alarm("P3", "OPC discovery failed", cause=str(exc))
+
+            if getattr(host, "_stopped", False) or (stop is not None and stop.is_set()):
+                return {}
+
+            structures = getattr(host, "structures", {}) or {}
+            self.sync_types_from_structures(structures)
+            if not self.types.types and self.types_folder:
+                self.load_result_types()
+
+            devices = self.refresh_catalog()
+            if getattr(host, "_stopped", False) or (stop is not None and stop.is_set()):
+                return {}
+
+            api_rows = any(
+                bool(getattr(d, "project", None) or getattr(d, "configuration", None))
+                for d in devices
+            )
+            api_attached = False
+            try:
+                api_attached = bool(self.silworx.is_attached())
+            except Exception:
+                api_attached = False
+            api_ok = api_attached or api_rows
+            opc_ok = bool(getattr(host, "_opc_servers", None))
+            if api_ok and opc_ok:
+                device_source = "api+opc"
+            elif api_ok:
+                device_source = "api"
+            else:
+                device_source = "opc_fallback"
+
+            active_types = sorted({d.results_type for d in devices if d.results_type})
+            try:
+                host.db.set_service_state("device_list_source", device_source)
+                host.db.sync_schema_case1(
+                    host.structures, active_types or list(host.structures.keys())
+                )
+            except Exception as exc:
+                log.warning("Schema / device_list_source update failed: %s", exc)
+
+            try:
+                from prooftest.step01_setup import sync_device_report_folders
+
+                folder_pairs = [
+                    (d.device_tag, d.results_type) for d in devices if d.results_type
+                ]
+                if folder_pairs:
+                    sync_device_report_folders(host.config, folder_pairs, host.db.alarms)
+            except Exception as exc:
+                log.warning("Report folder sync failed: %s", exc)
+
+            if getattr(host, "_stopped", False) or (stop is not None and stop.is_set()):
+                return {}
+            try:
+                host._case1_sync.commit()
+            except Exception as exc:
+                log.warning("Sync marker commit failed: %s", exc)
+            try:
+                host._publish_silworx_state()
+            except Exception as exc:
+                log.warning("Publish SILworX state failed: %s", exc)
+            host.db.set_service_state("deployment_case", "1")
+            host.db.set_service_state("opc_servers", str(len(host._opc_servers)))
+            host.db.set_service_state("opc_server_list", ";".join(host._opc_servers))
+            host.db.set_service_state("active_devices", str(len(host.db.list_active_devices())))
+            host.db.set_service_state("opc_devices", str(host.db.count_opc_devices()))
+            result = {
+                "opc_servers": len(host._opc_servers),
+                "active_devices": len(host.db.list_active_devices()),
+                "opc_devices": host.db.count_opc_devices(),
+                "structures_loaded": len(host.structures),
+                "device_list_source": device_source,
+            }
+            host._cached_device_counts = (
+                int(result["active_devices"]),
+                int(result["opc_devices"]),
+            )
+            try:
+                host._cached_service_state = host.db.get_service_state()
+            except Exception:
+                pass
+            return result
+        finally:
+            try:
+                host.db.set_service_state("catalog_refresh", "0")
+                host.db.set_service_state(
+                    "last_catalog_refresh", _time.strftime("%Y-%m-%d %H:%M:%S")
+                )
+                sync_fn = getattr(host, "_sync_health_caches_from_db", None)
+                if callable(sync_fn):
+                    sync_fn()
+            except Exception:
+                pass

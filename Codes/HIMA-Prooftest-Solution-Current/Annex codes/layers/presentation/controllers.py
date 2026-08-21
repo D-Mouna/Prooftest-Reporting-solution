@@ -132,6 +132,13 @@ class EngineController:
             def _run() -> None:
                 application(service).refresh_catalog()
 
+            try:
+                service.db.set_service_state("catalog_refresh", "1")
+                sync_fn = getattr(service, "_sync_health_caches_from_db", None)
+                if callable(sync_fn):
+                    sync_fn()
+            except Exception:
+                pass
             threading.Thread(target=_run, daemon=True, name="manual-refresh").start()
             return {"status": "refresh_started", "popups": facade.alarms.pop_pending_popups()}
 

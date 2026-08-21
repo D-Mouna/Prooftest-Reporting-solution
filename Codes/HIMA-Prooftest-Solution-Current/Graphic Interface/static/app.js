@@ -4,6 +4,7 @@ let selectedProject = null;
 let selectedResultsType = null;
 let selectedReport = null;
 let shownPopupKeys = new Set();
+let lastGoodHealth = null;
 
 const DEVICE_VIEW_KEY = "prooftest.deviceListView";
 const NO_DEVICE_TEXT = "(No device available)";
@@ -119,6 +120,61 @@ function showListPlaceholder(listId, text) {
 
 let engineWaitGeneration = 0;
 
+function healthLooksComplete(data) {
+  if (!data || typeof data !== "object") return false;
+  // Incomplete lock-stub payloads omit decorated fields and wipe the panel to zeros.
+  if (data.engine == null && data.opc_count == null && data.silworx_status == null) {
+    const st = data.service_state || {};
+    if (!Object.keys(st).length && Number(data.active_devices || 0) === 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function catalogRefreshBusy(health) {
+  const st = (health && health.service_state) || {};
+  return String(st.catalog_refresh || "") === "1";
+}
+
+async function waitForCatalogRefreshIdle(timeoutMs = 180000) {
+  const started = Date.now();
+  const baselineDone = String(
+    ((lastGoodHealth && lastGoodHealth.service_state) || {}).last_catalog_refresh || ""
+  );
+  let sawBusy = false;
+  let idleStreak = 0;
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const health = await fetchJson("/api/health", { timeoutMs: 4000 });
+      if (!healthLooksComplete(health)) {
+        await new Promise((r) => setTimeout(r, 1000));
+        continue;
+      }
+      lastGoodHealth = health;
+      renderHealth(health);
+      if (catalogRefreshBusy(health)) {
+        sawBusy = true;
+        idleStreak = 0;
+        showServiceBanner("Refreshing device list — waiting for catalog…");
+      } else {
+        idleStreak += 1;
+        const done = String((health.service_state || {}).last_catalog_refresh || "");
+        const doneAdvanced = Boolean(done && done !== baselineDone);
+        if ((sawBusy && idleStreak >= 1) || doneAdvanced || (idleStreak >= 2 && Date.now() - started > 1200)) {
+          hideServiceBanner();
+          return health;
+        }
+      }
+    } catch (_err) {
+      /* keep waiting */
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  showServiceBanner("Catalog refresh timed out — showing last known device list.");
+  return lastGoodHealth;
+}
+
 async function updateServiceButtons(health) {
   const startBtn = document.getElementById("btn-start-service");
   const stopBtn = document.getElementById("btn-stop-service");
@@ -163,7 +219,13 @@ async function waitForEngineRunning(timeoutMs = 180000) {
       await updateServiceButtons(health);
       if (health.engine_running && !health.starting) {
         hideServiceBanner();
-        await refreshAll(false);
+        showServiceBanner("Engine running — syncing device list…");
+        await waitForCatalogRefreshIdle(180000);
+        await pollStatus();
+        await loadDevices();
+        await loadRunningTests();
+        if (selectedDevice) await loadReports();
+        hideServiceBanner();
         return true;
       }
       if (health.stopping) {
@@ -263,6 +325,15 @@ function healthCard(label, value, state) {
 }
 
 function renderHealth(data) {
+  if (!healthLooksComplete(data)) {
+    if (lastGoodHealth) {
+      data = lastGoodHealth;
+    } else {
+      return;
+    }
+  } else {
+    lastGoodHealth = data;
+  }
   const grid = document.getElementById("health-grid");
   const badge = document.getElementById("health-status-badge");
 
@@ -284,8 +355,14 @@ function renderHealth(data) {
   const pluginRegistered = pluginInfo.registered === true || pluginInfo.connected === true;
   const pluginText = pluginName || "not registered";
   const pluginState = pluginRegistered ? "ok" : "";
-  const serviceState = data.starting ? "Starting" : data.stopping ? "Stopped" : "Running";
-  const serviceCls = data.starting || data.stopping ? "warn" : "ok";
+  const serviceState = data.starting
+    ? "Starting"
+    : data.stopping
+      ? "Stopping"
+      : data.engine_running
+        ? "Running"
+        : "Stopped";
+  const serviceCls = data.starting || data.stopping || !data.engine_running ? "warn" : "ok";
   const sourceRaw = String(data.device_list_source || st.device_list_source || "").toLowerCase();
   const sourceText = sourceRaw === "api+opc"
     ? "API + OPC"
@@ -297,10 +374,11 @@ function renderHealth(data) {
           ? String(data.device_list_source)
           : "unified";
 
+  const opcActive = Number(data.opc_devices ?? 0);
   grid.innerHTML = [
     `<div class="health-row health-row-counts">
       ${healthCard("ALL DEVICES", String(data.active_devices ?? 0), "")}
-      ${healthCard("OPC ACTIVE DEVICES", String(data.opc_devices ?? 0), "ok")}
+      ${healthCard("OPC ACTIVE DEVICES", String(opcActive), opcActive > 0 ? "ok" : "warn")}
     </div>`,
     `<div class="health-row health-row-top">
       ${healthCard("Service", serviceState, serviceCls)}
@@ -342,7 +420,15 @@ function renderHealth(data) {
       errBox.textContent = "";
     }
   }
-  const hasIssue = servers.some((s) => !s.connected) || data.stopping || Boolean(data.last_error);
+  // Only flag attention when a connected/known ProofTest server is unhealthy or service is stopping.
+  const proofServers = servers.filter(
+    (s) => /prooftest|proof.?tes|x-opc|x_ots|x-ots/i.test(String(s.name || ""))
+  );
+  const watch = proofServers.length ? proofServers : servers;
+  const hasIssue =
+    (watch.length > 0 && watch.every((s) => !s.connected)) ||
+    data.stopping ||
+    Boolean(data.last_error);
   if (badge) {
     badge.textContent = hasIssue ? "attention" : "healthy";
     badge.className = hasIssue ? "panel-badge panel-badge-warn" : "panel-badge panel-badge-ok";
@@ -481,6 +567,7 @@ async function loadDevices() {
   if (hint) hint.textContent = `${devices.length} shown · ${viewLabel}`;
 
   list.innerHTML = "";
+  let selectionStillPresent = false;
   devices.forEach((d) => {
     const tr = document.createElement("tr");
     const id = d.device_id || `${d.project || ""}|${d.device_tag}`;
@@ -488,6 +575,11 @@ async function loadDevices() {
     tr.dataset.deviceId = id;
     if (id === selectedDeviceId || (!selectedDeviceId && d.device_tag === selectedDevice)) {
       tr.classList.add("selected");
+      selectionStillPresent = true;
+      selectedDevice = d.device_tag;
+      selectedDeviceId = id;
+      selectedProject = d.project || d.silworx_project || "";
+      selectedResultsType = d.results_type;
     }
     const onOpc = Boolean(d.present_on_opc);
     const status = onOpc
@@ -514,6 +606,18 @@ async function loadDevices() {
     };
     list.appendChild(tr);
   });
+  if (selectedDeviceId || selectedDevice) {
+    if (!selectionStillPresent) {
+      selectedDevice = null;
+      selectedDeviceId = null;
+      selectedProject = null;
+      selectedResultsType = null;
+      selectedReport = null;
+      showListPlaceholder("report-list", NO_REPORT_TEXT);
+      const openBtn = document.getElementById("btn-open");
+      if (openBtn) openBtn.disabled = true;
+    }
+  }
   list.scrollTop = previousScroll;
   updateSelectedLabel();
   applyListSearch("device-search", "device-list", "device", false);
@@ -658,7 +762,7 @@ async function loadReports() {
 
   let reports;
   try {
-    reports = await fetchJson(url);
+    reports = await fetchJson(url, { timeoutMs: 8000 });
   } catch (err) {
     list.innerHTML = `<li class="list-empty">Failed to load reports: ${escapeHtml(err.message)}</li>`;
     return;
@@ -706,12 +810,17 @@ async function refreshAll(manual = false) {
 
   if (manual) shownPopupKeys.clear();
   try {
-    const data = await fetchJson("/api/refresh", { method: "POST" });
+    const data = await fetchJson("/api/refresh", { method: "POST", timeoutMs: 8000 });
     (data.popups || []).forEach(showPopup);
+    if (data.status === "refresh_started") {
+      showServiceBanner("Refreshing device list…");
+      await waitForCatalogRefreshIdle(180000);
+    }
     await pollStatus();
     await loadDevices();
     await loadRunningTests();
     if (selectedDevice) await loadReports();
+    hideServiceBanner();
   } catch (err) {
     showServiceBanner(`Service error: ${err.message}`);
   }
@@ -728,7 +837,9 @@ async function pollStatus() {
     health = await fetchJson("/api/health", { timeoutMs: 4000 });
     renderHealth(health);
     pollFailStreak = 0;
-    hideServiceBanner();
+    if (!catalogRefreshBusy(health)) {
+      hideServiceBanner();
+    }
   } catch (err) {
     pollFailStreak += 1;
     if (pollFailStreak >= 2) {
@@ -754,6 +865,11 @@ async function pollStatus() {
   }
   try {
     await loadRunningTests();
+  } catch (_ignore) {
+    /* keep UI alive */
+  }
+  try {
+    await loadDevices();
   } catch (_ignore) {
     /* keep UI alive */
   }
