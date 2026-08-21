@@ -72,6 +72,8 @@ class StorePort(Protocol):
 
     def insert_snapshot(self, device_tag: str, results_type: str, snapshot: dict) -> int: ...
 
+    def update_report_path(self, table: str, record_id: int, report_path: str) -> None: ...
+
     def snapshots_for(self, device_tag: str) -> list[dict]: ...
 
     def start_test(self, device_tag: str, results_type: str) -> None: ...
@@ -89,6 +91,8 @@ class ReportPort(Protocol):
         *,
         quality_notes: Optional[list[str]] = None,
         project: str = "",
+        snapshot_table: Optional[str] = None,
+        record_id: Optional[int] = None,
     ) -> Optional[str]: ...
 
     def list_for_device(

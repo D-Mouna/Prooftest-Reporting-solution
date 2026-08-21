@@ -165,11 +165,18 @@ class LiveTestService:
             self.store.finish_test(device.device_tag, "completed")
         except Exception:
             pass
+
+        sequence = self._next_sequence(device.device_id.key())
+        # Durable freeze: copy OPC-read values into SQL before report queue waits.
+        # OPC is read-only — this never writes back to the server.
+        record_id, snapshot_table = self._persist_snapshot(device, snapshot, sequence=sequence)
         job = {
             "device": device,
             "snapshot": snapshot,
             "quality_notes": notes,
-            "sequence": self._next_sequence(device.device_id.key()),
+            "sequence": sequence,
+            "record_id": record_id,
+            "snapshot_table": snapshot_table,
         }
         if self.defer_complete:
             self.queue.append(job)
@@ -200,6 +207,84 @@ class LiveTestService:
         self._sequence[device_id] = self._sequence.get(device_id, 0) + 1
         return self._sequence[device_id]
 
+    def _snapshot_table_name(self, results_type: str) -> str:
+        fn = getattr(self.store, "snapshot_table_for", None)
+        if callable(fn):
+            try:
+                return str(fn(results_type) or "")
+            except Exception:
+                pass
+        return ""
+
+    def _persist_snapshot(
+        self,
+        device: Device,
+        snapshot: dict,
+        *,
+        sequence: Optional[int] = None,
+    ) -> tuple[Optional[int], str]:
+        """INSERT the frozen OPC copy into ProofTest_* immediately (read-only OPC)."""
+        insert_kw = {
+            "opc_server": device.opc_server,
+            "sequence": sequence,
+            "device_id": device.device_id.key(),
+        }
+        table = self._snapshot_table_name(device.results_type)
+        try:
+            record_id = self.store.insert_snapshot(
+                device.device_tag, device.results_type, snapshot, **insert_kw
+            )
+        except TypeError:
+            try:
+                record_id = self.store.insert_snapshot(
+                    device.device_tag, device.results_type, snapshot
+                )
+            except Exception as exc:
+                self.alarms.raise_alarm(
+                    STEP_S5,
+                    "OnTestEnded",
+                    f"SQL insert failed: {exc}",
+                    device_tag=device.device_tag,
+                )
+                return None, table
+        except Exception as exc:
+            self.alarms.raise_alarm(
+                STEP_S5,
+                "OnTestEnded",
+                f"SQL insert failed: {exc}",
+                device_tag=device.device_tag,
+            )
+            try:
+                record_id = self.store.insert_snapshot(
+                    device.device_tag, device.results_type, snapshot, **insert_kw
+                )
+            except TypeError:
+                try:
+                    record_id = self.store.insert_snapshot(
+                        device.device_tag, device.results_type, snapshot
+                    )
+                except Exception as exc2:
+                    self.alarms.raise_alarm(
+                        STEP_S5,
+                        "OnTestEnded",
+                        f"SQL insert retry failed: {exc2}",
+                        device_tag=device.device_tag,
+                    )
+                    return None, table
+            except Exception as exc2:
+                self.alarms.raise_alarm(
+                    STEP_S5,
+                    "OnTestEnded",
+                    f"SQL insert retry failed: {exc2}",
+                    device_tag=device.device_tag,
+                )
+                return None, table
+        if not table:
+            table = str(getattr(self.store, "last_table", None) or "") or self._snapshot_table_name(
+                device.results_type
+            )
+        return record_id, table
+
     def run_complete(self, job: dict) -> None:
         device: Device = job["device"]
         snapshot: dict = job.get("snapshot") or {}
@@ -209,6 +294,8 @@ class LiveTestService:
             snapshot,
             quality_notes,
             sequence=job.get("sequence"),
+            record_id=job.get("record_id"),
+            snapshot_table=job.get("snapshot_table") or "",
         )
 
     def complete_test(
@@ -219,43 +306,17 @@ class LiveTestService:
         *,
         report_raises: Optional[Callable[[], None]] = None,
         sequence: Optional[int] = None,
+        record_id: Optional[int] = None,
+        snapshot_table: str = "",
     ) -> None:
+        """Write report from the frozen snapshot. SQL insert already done on test end when possible."""
         device.test_in_progress = False
-        record_id = None
-        insert_kw = {
-            "opc_server": device.opc_server,
-            "sequence": sequence,
-            "device_id": device.device_id.key(),
-        }
-        try:
-            record_id = self.store.insert_snapshot(
-                device.device_tag, device.results_type, snapshot, **insert_kw
-            )
-        except TypeError:
-            record_id = self.store.insert_snapshot(
-                device.device_tag, device.results_type, snapshot
-            )
-        except Exception as exc:
-            self.alarms.raise_alarm(
-                STEP_S5, "CompleteTest", f"SQL insert failed: {exc}", device_tag=device.device_tag
-            )
-            try:
-                try:
-                    record_id = self.store.insert_snapshot(
-                        device.device_tag, device.results_type, snapshot, **insert_kw
-                    )
-                except TypeError:
-                    record_id = self.store.insert_snapshot(
-                        device.device_tag, device.results_type, snapshot
-                    )
-            except Exception as exc2:
-                self.alarms.raise_alarm(
-                    STEP_S5,
-                    "CompleteTest",
-                    f"SQL insert retry failed: {exc2}",
-                    device_tag=device.device_tag,
-                )
-                return
+        table = snapshot_table or self._snapshot_table_name(device.results_type)
+
+        # Direct callers (unit tests) may skip on_test_ended — insert once here.
+        if record_id is None:
+            record_id, table = self._persist_snapshot(device, snapshot, sequence=sequence)
+
         if quality_notes:
             self.alarms.raise_alarm(
                 STEP_S5,
@@ -264,16 +325,38 @@ class LiveTestService:
                 device_tag=device.device_tag,
                 severity="Warning",
             )
+        report_path: Optional[str] = None
         try:
             if report_raises:
                 report_raises()
-            self.reports.write(
-                device.device_tag,
-                device.results_type,
-                snapshot,
-                quality_notes=quality_notes,
-                project=device.project,
-            )
+            write_kw = {
+                "quality_notes": quality_notes,
+                "project": device.project,
+                "snapshot_table": table or None,
+                "record_id": record_id,
+            }
+            try:
+                report_path = self.reports.write(
+                    device.device_tag,
+                    device.results_type,
+                    snapshot,
+                    **write_kw,
+                )
+            except TypeError:
+                report_path = self.reports.write(
+                    device.device_tag,
+                    device.results_type,
+                    snapshot,
+                    quality_notes=quality_notes,
+                    project=device.project,
+                )
+            if report_path and table and record_id is not None:
+                updater = getattr(self.store, "update_report_path", None)
+                if callable(updater):
+                    try:
+                        updater(table, int(record_id), report_path)
+                    except Exception:
+                        pass
         except Exception as exc:
             self.alarms.raise_alarm(
                 STEP_S6,
@@ -286,5 +369,5 @@ class LiveTestService:
             self.store.finish_test(device.device_tag, "completed")
         except Exception:
             pass
-        _ = record_id
         _ = sequence
+        _ = report_path

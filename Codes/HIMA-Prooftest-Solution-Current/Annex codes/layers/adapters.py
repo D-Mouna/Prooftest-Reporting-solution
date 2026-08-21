@@ -186,6 +186,12 @@ class DatabaseStoreAdapter:
         self.last_record_id = record_id
         return record_id
 
+    def snapshot_table_for(self, results_type: str) -> str:
+        return _structure_to_sql_table(results_type)
+
+    def update_report_path(self, table: str, record_id: int, report_path: str) -> None:
+        self._db.update_report_path(table, record_id, report_path)
+
     def snapshots_for(self, device_tag: str) -> list[dict]:
         return []
 
@@ -225,6 +231,8 @@ class AnnexReportAdapter:
         *,
         quality_notes: Optional[list[str]] = None,
         project: str = "",
+        snapshot_table: Optional[str] = None,
+        record_id: Optional[int] = None,
     ) -> Optional[str]:
         from prooftest.annex_pdf_generation import write_reports
 
@@ -236,11 +244,11 @@ class AnnexReportAdapter:
             quality_notes=quality_notes,
             project=project or "",
         )
-        if paths and self._store.last_table is not None and self._store.last_record_id:
+        table = snapshot_table or self._store.last_table
+        rid = record_id if record_id is not None else self._store.last_record_id
+        if paths and table is not None and rid:
             try:
-                self._db.update_report_path(
-                    self._store.last_table, self._store.last_record_id, paths[0]
-                )
+                self._db.update_report_path(table, int(rid), paths[0])
             except Exception:
                 pass
         return paths[0] if paths else None

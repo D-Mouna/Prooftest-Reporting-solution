@@ -122,6 +122,42 @@ def test_07_true_false_complete_once() -> None:
     assert len(store.snapshots) == 1
 
 
+def test_07b_defer_complete_inserts_sql_before_report() -> None:
+    """OPC copy is inserted immediately; report waits on the queue (same device type OK)."""
+    store = FakeStore()
+    reports = FakeReports()
+    opc = FakeOpc(
+        running_sequence={
+            "OTS ProofTest.A.Running": [(False, "Good")],
+            "OTS ProofTest.B.Running": [(False, "Good")],
+        }
+    )
+    live = LiveTestService(opc, store, reports, RecordingAlarmPort(), defer_complete=True)
+
+    for tag in ("A", "B"):
+        key = DeviceId("P", "C", "R", tag).key()
+        live.detector._last[key] = True
+        live.detector._in_progress[key] = True
+        live._poll_one(Device(DeviceId("P", "C", "R", tag), TYPE, "S", f"OTS ProofTest.{tag}", True))
+
+    assert len(store.snapshots) == 2
+    assert reports.written == []
+    assert live.completed == []
+    assert live.queue_depth == 2
+    assert live.queue[0]["record_id"] == 1
+    assert live.queue[1]["record_id"] == 2
+
+    while live.queue:
+        live.run_complete(live.queue.pop(0))
+
+    assert reports.written == ["A", "B"]
+    assert live.completed == ["A", "B"]
+    assert len(store.snapshots) == 2  # no second insert on report
+    assert len(store.report_paths) == 2
+    assert store.report_paths[0]["record_id"] == 1
+    assert store.report_paths[1]["record_id"] == 2
+
+
 def test_08_flicker_no_complete() -> None:
     store = FakeStore()
     opc = FakeOpc(

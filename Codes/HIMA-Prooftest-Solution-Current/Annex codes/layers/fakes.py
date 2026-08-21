@@ -126,6 +126,9 @@ class FakeStore:
         self.connect_always_fail = connect_always_fail
         self.folder_ok = True
         self.insert_fail_once = False
+        self.report_paths: list[dict] = []
+        self.last_table: Optional[str] = None
+        self.last_record_id: Optional[int] = None
 
     def ensure_folders(self) -> None:
         if not self.folder_ok:
@@ -189,7 +192,18 @@ class FakeStore:
                 "device_id": kwargs.get("device_id"),
             }
         )
-        return len(self.snapshots)
+        rid = len(self.snapshots)
+        self.last_table = f"ProofTest_{results_type}"
+        self.last_record_id = rid
+        return rid
+
+    def snapshot_table_for(self, results_type: str) -> str:
+        return f"ProofTest_{results_type}"
+
+    def update_report_path(self, table: str, record_id: int, report_path: str) -> None:
+        self.report_paths.append(
+            {"table": table, "record_id": record_id, "path": report_path}
+        )
 
     def snapshots_for(self, device_tag: str) -> list[dict]:
         return [s for s in self.snapshots if s["device_tag"] == device_tag]
@@ -216,7 +230,10 @@ class FakeReports:
         *,
         quality_notes: Optional[list[str]] = None,
         project: str = "",
+        snapshot_table: Optional[str] = None,
+        record_id: Optional[int] = None,
     ) -> Optional[str]:
+        _ = snapshot_table, record_id
         if self.fail:
             raise RuntimeError("template missing")
         self.written.append(device_tag)
