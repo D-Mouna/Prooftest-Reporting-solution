@@ -459,6 +459,7 @@ class ProoftestService:
                 if self.monitor:
                     self.monitor.poll_devices()
                 self.db.set_service_state("last_poll", time.strftime("%Y-%m-%d %H:%M:%S"))
+                self._sync_health_caches_from_db()
             except Exception as exc:
                 log.exception("Poll loop error: %s", exc)
             self._stop.wait(self.config.poll_interval_sec)
@@ -597,6 +598,71 @@ class ProoftestService:
         except Exception:
             return 0, 0
 
+    def _sync_health_caches_from_db(self) -> None:
+        """Keep UI health fresh even when catalog refresh is slow/stuck."""
+        try:
+            self._cached_device_counts = self._device_counts()
+        except Exception:
+            pass
+        try:
+            state = self.db.get_service_state() or {}
+            if state:
+                self._cached_service_state = dict(state)
+        except Exception:
+            pass
+
+    def _health_stub_from_caches(self) -> Dict[str, object]:
+        """Fast payload when the health lock is busy — never return empty zeros if DB has data."""
+        self._sync_health_caches_from_db()
+        all_count, opc_count = self._cached_device_counts
+        service_state = dict(self._cached_service_state)
+        db_label = "sqlite" if self.db.using_sqlite else "sqlserver"
+        opc_names = list(self._opc_servers or [])
+        if not opc_names:
+            raw = str(service_state.get("opc_server_list") or "")
+            opc_names = [p for p in raw.split(";") if p]
+        payload = {
+            "deployment_case": self.config.deployment_case,
+            "device_list_source": service_state.get("device_list_source", ""),
+            "database": db_label,
+            "opc_servers": [
+                {"name": name, "connected": True, "tags": 0} for name in opc_names
+            ],
+            "active_devices": all_count,
+            "opc_devices": opc_count,
+            "queue_depth": self.monitor.queue_depth if self.monitor else 0,
+            "silworx": {
+                k: service_state.get(k, "")
+                for k in (
+                    "silworx_open",
+                    "silworx_project_name",
+                    "silworx_project_file",
+                    "project_state",
+                    "project_name",
+                    "session_id",
+                )
+                if service_state.get(k)
+            },
+            "api_session": {
+                "project_name": service_state.get("project_name")
+                or service_state.get("silworx_project_name")
+                or ""
+            },
+            "plugin_session": {
+                "name": "",
+                "registered": str(service_state.get("silworx_api_connected") or "") == "1",
+            },
+            "silworx_api_instances": [],
+            "service_state": service_state,
+            "stopping": bool(getattr(self, "_stop_in_progress", False)),
+            "starting": bool(self._starting),
+            "engine_running": bool(self.engine_running),
+            "web_host_alive": True,
+            "web_auth_required": self.config.web_auth_enabled,
+        }
+        engine = "starting" if self._starting else ("stopped" if self._stopped else "running")
+        return self._decorate_health(payload, engine)
+
     def _decorate_health(self, payload: Dict[str, object], engine: str) -> Dict[str, object]:
         payload["engine"] = engine
         servers = payload.get("opc_servers") or []
@@ -619,30 +685,18 @@ class ProoftestService:
         if self._health_cache and now - self._health_cache_at <= self._health_cache_ttl_sec:
             return dict(self._health_cache)
 
-        # Single-flight guard: avoid piling up slow OPC/DB work across request threads.
+        # Single-flight guard: avoid piling up slow work across request threads.
         if not self._health_lock.acquire(blocking=False):
             if self._health_cache:
                 return dict(self._health_cache)
-            return {
-                "deployment_case": self.config.deployment_case,
-                "device_list_source": "",
-                "database": "sqlserver" if not self.db.using_sqlite else "sqlite",
-                "opc_servers": [],
-                "active_devices": 0,
-                "opc_devices": 0,
-                "queue_depth": 0,
-                "silworx": {},
-                "api_session": {"project_name": ""},
-                "plugin_session": {"name": "", "registered": False},
-                "silworx_api_instances": [],
-                "service_state": {},
-                "stopping": bool(getattr(self, "_stop_in_progress", False)),
-                "starting": bool(self._starting),
-                "engine_running": bool(self.engine_running),
-                "web_host_alive": True,
-                "web_auth_required": self.config.web_auth_enabled,
-            }
+            return self._health_stub_from_caches()
         try:
+            # Prefer DB-backed counts so UI stays correct while refresh/browse runs.
+            if (
+                not self._cached_service_state
+                or self._cached_device_counts == (0, 0)
+            ):
+                self._sync_health_caches_from_db()
             all_count, opc_count = self._cached_device_counts
             service_state = dict(self._cached_service_state)
             db_label = "sqlite" if self.db.using_sqlite else "sqlserver"
@@ -699,6 +753,11 @@ class ProoftestService:
                 servers = self.opc.health_snapshot()
             except Exception:
                 pass
+            if not servers and self._opc_servers:
+                servers = [
+                    type("S", (), {"prog_id": n, "connected": True, "tag_count": 0})()
+                    for n in self._opc_servers
+                ]
             silworx = silworx_session_to_state(self._case1_sync.active_session)
             device_list_source = service_state.get("device_list_source", "")
             api_project = self._case1_sync.api_connected_project_name(device_list_source)
@@ -734,18 +793,21 @@ class ProoftestService:
             return payload
         except Exception as exc:
             log.exception("GetEngineStatus error: %s", exc)
-            return self._decorate_health(
-                {
-                    "engine": "running" if self.engine_running else "stopped",
-                    "opc_servers": [],
-                    "active_devices": 0,
-                    "opc_devices": 0,
-                    "queue_depth": 0,
-                    "silworx": {},
-                    "engine_running": bool(self.engine_running),
-                    "web_host_alive": True,
-                },
-                "running" if self.engine_running else "stopped",
-            )
+            try:
+                return self._health_stub_from_caches()
+            except Exception:
+                return self._decorate_health(
+                    {
+                        "engine": "running" if self.engine_running else "stopped",
+                        "opc_servers": [],
+                        "active_devices": 0,
+                        "opc_devices": 0,
+                        "queue_depth": 0,
+                        "silworx": {},
+                        "engine_running": bool(self.engine_running),
+                        "web_host_alive": True,
+                    },
+                    "running" if self.engine_running else "stopped",
+                )
         finally:
             self._health_lock.release()

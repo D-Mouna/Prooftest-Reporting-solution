@@ -352,8 +352,19 @@ class OpcManager:
         return None
 
     def health_snapshot(self) -> List[OpcServerInfo]:
-        """Non-blocking OPC summary from the last discovery/browse cache (Gate 13)."""
-        with self._lock:
+        """Non-blocking OPC summary from the last discovery/browse cache (Gate 13).
+
+        Must never wait on ``self._lock`` — health holds its own lock and a wait
+        here deadlocks the UI (empty stub while browse/poll owns the OPC lock).
+        """
+        acquired = self._lock.acquire(blocking=False)
+        if not acquired:
+            # Best-effort: last known server list without tag counts.
+            servers = list(getattr(self, "_last_servers", []) or [])
+            return [
+                OpcServerInfo(prog_id=name, connected=True, tag_count=0) for name in servers
+            ]
+        try:
             servers = list(self._last_servers)
             client_names: set[str] = set()
             for bucket in self._thread_clients.values():
@@ -362,6 +373,8 @@ class OpcManager:
             for key, tags in self._tags_cache.items():
                 srv = key.split("|", 1)[0]
                 tag_counts[srv] = max(tag_counts.get(srv, 0), len(tags))
+        finally:
+            self._lock.release()
         if not servers:
             return []
         out: List[OpcServerInfo] = []
