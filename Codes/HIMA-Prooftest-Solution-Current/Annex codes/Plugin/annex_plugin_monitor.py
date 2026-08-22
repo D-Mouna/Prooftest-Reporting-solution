@@ -49,8 +49,11 @@ class _RegisterPlugin:
     predefined_trigger: list = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        # timeout>0 asks SILworX to deliver the current open-project session_id on
+        # register (and later on change). timeout:0 left the WebSocket "up" with an
+        # empty session cache — attach then failed and the UI stayed disconnected.
         self.predefined_trigger = [
-            {"trigger_name": TRIGGER_SESSION_ID_CHANGED, "timeout": 0},
+            {"trigger_name": TRIGGER_SESSION_ID_CHANGED, "timeout": 10},
         ]
 
 
@@ -281,14 +284,16 @@ class PluginPortMonitor:
                         tag,
                         self.config.silworx_plugin_name,
                     )
-                    while not self._stop.is_set():
+                    # SILworX may deliver the open-project session shortly after register.
+                    session_deadline = time.monotonic() + 12.0
+                    while (
+                        not self._stop.is_set()
+                        and time.monotonic() < session_deadline
+                        and not self.get_session_id(plugin_port)
+                    ):
                         if self._should_reregister(plugin_port):
                             reregistering = True
                             disconnect_reason = "re-register for fresh session"
-                            log.info(
-                                "plugin monitor re-registering %s (fresh session after project open)",
-                                tag,
-                            )
                             break
                         try:
                             raw = await asyncio.wait_for(ws.recv(), timeout=0.5)
@@ -297,8 +302,40 @@ class PluginPortMonitor:
                         message = json.loads(raw)
                         trigger_id = message.get("trigger_id")
                         if message.get("msg_type") == "trigger" and trigger_id:
-                            await ws.send(json.dumps({"msg_type": "resume", "trigger_id": trigger_id}))
+                            await ws.send(
+                                json.dumps({"msg_type": "resume", "trigger_id": trigger_id})
+                            )
                         self._handle_message(plugin_port, api_port, message)
+                    if reregistering:
+                        backoff = 1.0
+                        continue
+                    if not self.get_session_id(plugin_port):
+                        log.warning(
+                            "plugin monitor %s connected but no session_id after register — will retry",
+                            tag,
+                        )
+                        disconnect_reason = "no session after register"
+                    else:
+                        while not self._stop.is_set():
+                            if self._should_reregister(plugin_port):
+                                reregistering = True
+                                disconnect_reason = "re-register for fresh session"
+                                log.info(
+                                    "plugin monitor re-registering %s (fresh session after project open)",
+                                    tag,
+                                )
+                                break
+                            try:
+                                raw = await asyncio.wait_for(ws.recv(), timeout=0.5)
+                            except asyncio.TimeoutError:
+                                continue
+                            message = json.loads(raw)
+                            trigger_id = message.get("trigger_id")
+                            if message.get("msg_type") == "trigger" and trigger_id:
+                                await ws.send(
+                                    json.dumps({"msg_type": "resume", "trigger_id": trigger_id})
+                                )
+                            self._handle_message(plugin_port, api_port, message)
                     backoff = 1.0
             except OSError as exc:
                 disconnect_reason = f"connect failed: {exc}"

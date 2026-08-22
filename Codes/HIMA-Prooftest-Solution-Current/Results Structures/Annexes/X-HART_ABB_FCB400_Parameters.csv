@@ -1,0 +1,41 @@
+Name,Data type,Initial Value,Sequence Number
+X-HART_ABB_FCB400_Parameters,,,
+X-HART_ABB_FCB400_Parameters.Alarm Simulation,USINT,,38
+X-HART_ABB_FCB400_Parameters.Current Output Mode,USINT,,31
+X-HART_ABB_FCB400_Parameters.Damping Density,REAL,,12
+X-HART_ABB_FCB400_Parameters.Damping Qm,REAL,,11
+X-HART_ABB_FCB400_Parameters.Density Correction,REAL,,19
+X-HART_ABB_FCB400_Parameters.Density Cut Off,REAL,,17
+X-HART_ABB_FCB400_Parameters.Density Fixed Value,REAL,,14
+X-HART_ABB_FCB400_Parameters.Density Max,REAL,,7
+X-HART_ABB_FCB400_Parameters.Density Min,REAL,,8
+X-HART_ABB_FCB400_Parameters.Density Mode,USINT,,13
+X-HART_ABB_FCB400_Parameters.Density Noise Reduc,USINT,,28
+X-HART_ABB_FCB400_Parameters.ECC Mode,USINT,,26
+X-HART_ABB_FCB400_Parameters.Flow Direction,USINT,,9
+X-HART_ABB_FCB400_Parameters.Flow Indication,USINT,,10
+X-HART_ABB_FCB400_Parameters.Flow Noise Reduction,USINT,,27
+X-HART_ABB_FCB400_Parameters.High Alarm,REAL,,34
+X-HART_ABB_FCB400_Parameters.Hold Time,REAL,,21
+X-HART_ABB_FCB400_Parameters.Iout < 3_8mA,USINT,,36
+X-HART_ABB_FCB400_Parameters.Iout > 20_5mA,USINT,,35
+X-HART_ABB_FCB400_Parameters.Iout for Alarm,USINT,,32
+X-HART_ABB_FCB400_Parameters.Loop Current Mode,USINT,,29
+X-HART_ABB_FCB400_Parameters.Low Alarm,REAL,,33
+X-HART_ABB_FCB400_Parameters.Low Flow Cut Off,REAL,,15
+X-HART_ABB_FCB400_Parameters.Low Flow Hysteresis,REAL,,16
+X-HART_ABB_FCB400_Parameters.Manual Adjust,REAL,,18
+X-HART_ABB_FCB400_Parameters.Output Value,USINT,,30
+X-HART_ABB_FCB400_Parameters.P Comp Status (PECI),USINT,,25
+X-HART_ABB_FCB400_Parameters.Pressure Level,REAL,,24
+X-HART_ABB_FCB400_Parameters.Qm Correction,REAL,,20
+X-HART_ABB_FCB400_Parameters.Qm Max,REAL,,1
+X-HART_ABB_FCB400_Parameters.Qm Max 2,REAL,,2
+X-HART_ABB_FCB400_Parameters.Qm Range Mode,USINT,,3
+X-HART_ABB_FCB400_Parameters.Qv Max,REAL,,4
+X-HART_ABB_FCB400_Parameters.Qv Max 2,REAL,,5
+X-HART_ABB_FCB400_Parameters.Qv Range Mode,USINT,,6
+X-HART_ABB_FCB400_Parameters.Range Mode Config,USINT,,0
+X-HART_ABB_FCB400_Parameters.Simulation Switch,USINT,,37
+X-HART_ABB_FCB400_Parameters.Threshold Hold,REAL,,22
+X-HART_ABB_FCB400_Parameters.Threshold Release,REAL,,23

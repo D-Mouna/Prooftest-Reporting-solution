@@ -75,6 +75,8 @@ class FakeOpc:
         self.fail_tags = fail_tags or set()
         self.find_calls: list[tuple[str, str]] = []
         self.read_calls: list[str] = []
+        self._live_ok: dict[str, bool] = {}
+        self.recheck_calls: list[tuple[str, str]] = []
 
     def discover_servers(self) -> list[str]:
         return list(self.servers)
@@ -83,15 +85,20 @@ class FakeOpc:
         return []
 
     def find_running_path(self, server: str, device_tag: str) -> Optional[str]:
-        for branch in ("OTS ProofTest", "OPC ProofTest"):
-            item = f"{branch}.{device_tag}.Running"
-            self.find_calls.append((server, item))
-            if (server, item) in self.paths:
-                return self.paths[(server, item)]
-            if (server, device_tag) in self.paths:
-                found = self.paths[(server, device_tag)]
-                if found.startswith(branch) or branch in found:
-                    return found
+        tag = str(device_tag or "").strip()
+        for key, value in list(self.paths.items()):
+            if not isinstance(key, tuple) or len(key) != 2:
+                continue
+            srv, item_or_tag = key
+            if srv != server:
+                continue
+            if item_or_tag.endswith(f".{tag}.Running") or item_or_tag == f"{tag}.Running":
+                found = value if isinstance(value, str) else item_or_tag
+                self.find_calls.append((server, found))
+                return found
+            if item_or_tag == tag and isinstance(value, str) and value.endswith(".Running"):
+                self.find_calls.append((server, value))
+                return value
         return None
 
     def read_running(self, server: str, item_id: str) -> tuple[Optional[bool], str]:
@@ -101,10 +108,36 @@ class FakeOpc:
             raise RuntimeError(f"COM error {item_id}")
         seq = self.running_sequence.get(item_id) or self.running_sequence.get(tag)
         if seq:
-            return seq.pop(0)
-        if item_id in self.running:
-            return self.running[item_id]
-        return self.running.get(tag, (False, "Good"))
+            result = seq.pop(0)
+        elif item_id in self.running:
+            result = self.running[item_id]
+        else:
+            result = self.running.get(tag, (False, "Good"))
+        value, quality = result
+        ok = str(quality).lower() == "good"
+        self._live_ok[server] = ok
+        if not ok:
+            return None, str(quality)
+        return value, str(quality)
+
+    def server_live_ok(self, server: str) -> Optional[bool]:
+        if server not in self._live_ok:
+            return None
+        return bool(self._live_ok[server])
+
+    def mark_live_quality(self, server: str, ok: bool, quality: str = "") -> None:
+        del quality
+        self._live_ok[server] = bool(ok)
+
+    def recheck_server_live(
+        self, server: str, running_item: Optional[str] = None
+    ) -> Optional[bool]:
+        item = str(running_item or "")
+        self.recheck_calls.append((server, item))
+        if item:
+            _value, quality = self.read_running(server, item)
+            return str(quality).lower() == "good"
+        return self.server_live_ok(server)
 
     def discover_opc_only(
         self,

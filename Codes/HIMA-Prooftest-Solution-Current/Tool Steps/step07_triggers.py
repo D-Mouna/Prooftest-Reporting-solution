@@ -160,14 +160,22 @@ def pick_configured_session(
 
 
 def session_working_mtime(session: SilworxOpenProject) -> float:
-    """Aggregate mtime of the live session database (c3data while SILworX is open)."""
+    """Fast mtime signal for the live session database (avoid full c3data rglob)."""
     c3data = session.data_path / "c3data"
     if not c3data.is_dir():
         return _path_mtime(session.data_path)
-    latest = 0.0
-    for path in c3data.rglob("*"):
-        if path.is_file():
+    latest = _path_mtime(c3data)
+    try:
+        # Top-level files + one directory level is enough to catch SILworX saves.
+        for path in c3data.iterdir():
             latest = max(latest, _path_mtime(path))
+            if path.is_dir():
+                for child in path.iterdir():
+                    latest = max(latest, _path_mtime(child))
+                    if child.is_dir():
+                        latest = max(latest, _path_mtime(child))
+    except OSError:
+        pass
     return latest
 
 
@@ -241,6 +249,19 @@ def silworx_session_to_state(session: Optional[SilworxOpenProject]) -> Dict[str,
         "session_id": session.session_id,
         "project_state": "open",
         "project_name": session.project_name,
+    }
+
+
+def silworx_open_projects_state(sessions: List[SilworxOpenProject]) -> Dict[str, str]:
+    """Service-state fields listing every open SILworX project (not only the preferred one)."""
+    names = [s.project_name for s in sessions if (s.project_name or "").strip()]
+    files = [s.project_file for s in sessions if (s.project_file or "").strip()]
+    ids = [s.session_id for s in sessions if (s.session_id or "").strip()]
+    return {
+        "silworx_open_count": str(len(sessions)),
+        "silworx_open_projects": ";".join(names),
+        "silworx_open_project_files": ";".join(files),
+        "silworx_open_session_ids": ";".join(ids),
     }
 
 
@@ -360,7 +381,29 @@ class SilworxSyncTriggers:
         if not self.open_sessions:
             return False
         plugin_port = plugin_port_for_api(api_port, self.config)
-        if self._attach_with_resolved_session(api_port, plugin_port):
+
+        # Reuse a cached attach only when the plugin still reports the same session.
+        cached_sid = (self._attached_session_ids_by_api.get(api_port) or "").strip()
+        live_sid = ""
+        if self._plugin_monitor is not None:
+            try:
+                live_sid = (self._plugin_monitor.get_session_id(plugin_port) or "").strip()
+            except Exception:
+                live_sid = ""
+        if cached_sid and (not live_sid or live_sid == cached_sid):
+            client = self.get_api_client(api_port)
+            client.set_session_id(cached_sid)
+            return True
+        if cached_sid and live_sid and live_sid != cached_sid:
+            log.info(
+                "SILworX plugin session changed on %s/%s — re-attaching",
+                api_port,
+                plugin_port,
+            )
+            self._attached_session_ids_by_api.pop(api_port, None)
+            self._attached_project_names_by_api.pop(api_port, None)
+
+        if self._attach_with_resolved_session(api_port, plugin_port, wait_timeout_sec=8.0):
             return True
 
         log.info(
@@ -369,9 +412,61 @@ class SilworxSyncTriggers:
             plugin_port,
         )
         self.request_fresh_plugin_session(api_port)
-        if self._attach_with_resolved_session(api_port, plugin_port, wait_timeout_sec=15.0):
+        if self._attach_with_resolved_session(api_port, plugin_port, wait_timeout_sec=12.0):
             return True
         return False
+
+    def _infer_attached_project_name(
+        self,
+        api_port: int,
+        session_id: str,
+        tree: object,
+    ) -> str:
+        """Map an attached API session to one open lock.ini project (multi-project safe)."""
+        sid = (session_id or "").strip()
+        sid_l = sid.lower()
+        for session in self.open_sessions:
+            if (session.session_id or "").strip().lower() == sid_l:
+                return session.project_name
+            # Plugin tokens sometimes embed / prefix the ProgramData session id.
+            sess = (session.session_id or "").strip().lower()
+            if sess and (sess in sid_l or sid_l in sess):
+                return session.project_name
+
+        claimed = {
+            (name or "").strip()
+            for port, name in self._attached_project_names_by_api.items()
+            if port != api_port and (name or "").strip()
+        }
+        try:
+            blob = json.dumps(tree, ensure_ascii=False).lower()
+        except Exception:
+            blob = ""
+        candidates: List[tuple[int, str]] = []
+        if blob:
+            for session in self.open_sessions:
+                name = (session.project_name or "").strip()
+                file_name = (session.project_file or "").strip()
+                if not name:
+                    continue
+                if name in claimed:
+                    continue
+                name_l = name.lower()
+                file_l = file_name.lower()
+                if name_l and name_l in blob:
+                    candidates.append((len(name_l), name))
+                elif file_l and file_l in blob:
+                    candidates.append((len(file_l), name))
+            if not candidates:
+                # Last resort: allow already-claimed names (same project on two ports).
+                for session in self.open_sessions:
+                    name = (session.project_name or "").strip()
+                    if name and name.lower() in blob:
+                        candidates.append((len(name), name))
+        if candidates:
+            candidates.sort(key=lambda item: (-item[0], item[1]))
+            return candidates[0][1]
+        return ""
 
     def _attach_with_resolved_session(
         self,
@@ -409,30 +504,17 @@ class SilworxSyncTriggers:
             self._attached_project_names_by_api.pop(api_port, None)
             return False
         self.refresh_open_sessions()
-        matched_project = ""
-        try:
-            blob = json.dumps(tree, ensure_ascii=False).lower()
-        except Exception:
-            blob = ""
-        if blob:
-            for session in self.open_sessions:
-                name = (session.project_name or "").strip()
-                file_name = (session.project_file or "").strip()
-                if name and name.lower() in blob:
-                    matched_project = name
-                    break
-                if file_name and file_name.lower() in blob:
-                    matched_project = name or file_name.rsplit(".", 1)[0]
-                    break
+        matched_project = self._infer_attached_project_name(api_port, session_id, tree)
         self._attached_session_ids_by_api[api_port] = session_id
         self._attached_project_names_by_api[api_port] = matched_project
         self._last_attached_api_port = api_port
         log.info(
-            "Attached to open SILworX project %s (%s) on API %s / plugin %s",
-            self.active_session.session_id if self.active_session else "?",
-            self.active_session.project_name if self.active_session else "?",
+            "Attached SILworX API %s / plugin %s → project=%s session=%s (preferred UI=%s)",
             api_port,
             plugin_port,
+            matched_project or "?",
+            session_id[:16] + ("…" if len(session_id) > 16 else ""),
+            self.active_session.project_name if self.active_session else "?",
         )
         return True
 
@@ -441,7 +523,52 @@ class SilworxSyncTriggers:
         name = (self._attached_project_names_by_api.get(api_port) or "").strip()
         if name:
             return name
-        return self.api_connected_project_name("api")
+        session_id = (self._attached_session_ids_by_api.get(api_port) or "").strip()
+        if session_id:
+            inferred = self._infer_attached_project_name(api_port, session_id, {})
+            if inferred:
+                return inferred
+        # Only fall back to the preferred UI session when a single project is open.
+        if len(self.open_sessions) <= 1:
+            return self.api_connected_project_name("api")
+        return ""
+
+    def uncovered_open_projects(self) -> List[str]:
+        """
+        Open lock.ini projects not yet mapped to an attached API port.
+
+        When more projects are open than SILworX API instances, only the
+        instance count can be scanned (one project per API port). Remaining
+        lock.ini entries are not treated as uncovered forever.
+        """
+        self.refresh_open_sessions()
+        if not self.open_sessions:
+            return []
+        instances = list(self._available_instances or [])
+        if not instances:
+            try:
+                instances = list(self.discover_api_instances() or [])
+            except Exception:
+                instances = []
+        scanned_ports = {
+            port
+            for port, sid in (self._attached_session_ids_by_api or {}).items()
+            if (sid or "").strip()
+        }
+        attached_names = {
+            (name or "").strip()
+            for name in (self._attached_project_names_by_api or {}).values()
+            if (name or "").strip()
+        }
+        capacity = len(instances) if instances else 0
+        if capacity and len(scanned_ports) >= capacity:
+            # Every reachable SILworX instance was scanned at least once.
+            return []
+        return [
+            s.project_name
+            for s in self.open_sessions
+            if (s.project_name or "").strip() and s.project_name not in attached_names
+        ]
 
     @contextmanager
     def api_session_for_port(
@@ -466,9 +593,14 @@ class SilworxSyncTriggers:
         client = self.get_api_client(api_port)
 
         if self._try_attach_gui_session_on_port(api_port):
+            sid = (self._attached_session_ids_by_api.get(api_port) or "").strip()
+            if sid:
+                client.set_session_id(sid)
             try:
                 yield client
             finally:
+                # Keep the attach map for multi-instance discovery; only clear the
+                # client handle so the next port/session bind starts clean.
                 client.clear_session_id()
             return
 
@@ -622,6 +754,33 @@ class SilworxSyncTriggers:
             return False
         return bool(self._attached_session_ids_by_api) or bool(self._attached_project_names_by_api)
 
+    def _drop_stale_attachments_vs_plugin(self) -> None:
+        """Drop API attaches whose plugin session token changed (other SILworX window)."""
+        if self._plugin_monitor is None:
+            return
+        from prooftest.annex_api_connexion import plugin_port_for_api
+
+        for api_port, sid in list(self._attached_session_ids_by_api.items()):
+            plugin_port = plugin_port_for_api(api_port, self.config)
+            live = ""
+            try:
+                live = (self._plugin_monitor.get_session_id(plugin_port) or "").strip()
+            except Exception:
+                live = ""
+            if live and sid and live != sid:
+                log.info(
+                    "Dropping stale SILworX attach on API %s (plugin session changed)",
+                    api_port,
+                )
+                self._attached_session_ids_by_api.pop(api_port, None)
+                self._attached_project_names_by_api.pop(api_port, None)
+                client = self._api_clients.get(api_port)
+                if client is not None:
+                    try:
+                        client.clear_session_id()
+                    except Exception:
+                        pass
+
     def _marker(self, key: str) -> Path:
         return self.markers_dir / f"{key}.marker"
 
@@ -724,12 +883,17 @@ class SilworxSyncTriggers:
             log.info(
                 "SILworX project open/change detected — requesting fresh plugin session"
             )
+            # Force remapping of API ports → projects after a new window/project opens.
+            self._attached_session_ids_by_api.clear()
+            self._attached_project_names_by_api.clear()
             self.request_fresh_plugin_session()
             if "silworx_session" in self._enabled:
                 fired.append("silworx_session")
 
         if self._plugin_monitor is not None:
             for trigger in self._plugin_monitor.consume_triggers():
+                if trigger == "silworx_session":
+                    self._drop_stale_attachments_vs_plugin()
                 if trigger in self._enabled and trigger not in fired:
                     fired.append(trigger)
 
@@ -800,11 +964,17 @@ def run_background_sync_iteration(service, now: float) -> None:
     from prooftest.results_csv import load_all_structures
     from prooftest.step01_setup import is_silworx_installed
 
+    # Operator Release SILworX / G-11: stay OPC-only until Re-integrate.
+    integration_released = bool(
+        getattr(service, "is_silworx_integration_released", lambda: False)()
+    )
+
     # G-11: SILworX gone — release blockers once; keep running; OPC device list below.
     if not is_silworx_installed(service.config.silworx_programdata):
         if not getattr(service, "_silworx_uninstall_released", False):
             service.release_silworx_engines_keep_running()
             service._silworx_uninstall_released = True
+            integration_released = True
 
     if now - service._last_case1_sync_check >= service.config.case1_sync_poll_sec:
         service._last_case1_sync_check = now
@@ -813,8 +983,13 @@ def run_background_sync_iteration(service, now: float) -> None:
 
         silworx_open = is_silworx_open(service.config.silworx_programdata)
 
+        if integration_released:
+            # Do not auto-resume API/plugin while released for uninstall.
+            service._case1_sync._silworx_api_suspended = True
+            service.db.set_service_state("silworx_api_connected", "0")
+            service.db.set_service_state("device_list_source", "opc_fallback")
         # G-19: release API session when SILworX software is down.
-        if silworx_running:
+        elif silworx_running:
             service._silworx_uninstall_released = False
             service._case1_sync._silworx_down_streak = 0
             if service._case1_sync._silworx_api_suspended:
@@ -847,16 +1022,37 @@ def run_background_sync_iteration(service, now: float) -> None:
         # Keep updating the device list via Application RefreshCatalog (not step03 brain).
         # Also retry when API/plugin is up but this tool is not yet attached (initial
         # refresh often races the plugin WebSocket and would otherwise stay on OPC forever).
-        api_unavailable = service._case1_sync.is_api_suspended() or not silworx_running
+        # When several SILworX projects are open, refresh again until each has been
+        # scanned on at least one API port (or device_list_poll elapses).
+        api_unavailable = (
+            integration_released
+            or service._case1_sync.is_api_suspended()
+            or not silworx_running
+        )
         need_api_attach = (
-            silworx_running
+            (not integration_released)
+            and silworx_running
             and not api_unavailable
             and silworx_open
             and not service._case1_sync.is_tool_attached()
         )
-        if (api_unavailable or need_api_attach) and not service._stop.is_set():
+        uncovered = []
+        try:
+            if (not integration_released) and silworx_running and silworx_open and not api_unavailable:
+                uncovered = service._case1_sync.uncovered_open_projects()
+        except Exception:
+            uncovered = []
+        need_multi_project_scan = bool(uncovered)
+        if (
+            api_unavailable or need_api_attach or need_multi_project_scan
+        ) and not service._stop.is_set():
             if now - service._last_device_sync >= service.config.device_list_poll_sec:
                 try:
+                    if need_multi_project_scan:
+                        log.info(
+                            "Open SILworX projects not yet API-scanned: %s — refreshing",
+                            ", ".join(uncovered),
+                        )
                     if getattr(service, "app", None) is not None:
                         service.app.refresh_catalog()
                     else:
@@ -923,6 +1119,8 @@ def run_background_sync_iteration(service, now: float) -> None:
                 service.structures = load_all_structures(service.config.results_structures)
                 if service.monitor is not None:
                     service.monitor.structures = service.structures
+                    if "results_structures" in triggers:
+                        service.monitor.reload_type_catalog()
                 if "results_structures" in triggers:
                     from prooftest.step01_setup import sync_results_type_folders_from_catalogue
                     from prooftest.annex_pdf_generation import ensure_report_templates_for_structures
@@ -948,4 +1146,33 @@ def run_background_sync_iteration(service, now: float) -> None:
                     service.opc.invalidate_tag_cache()
                 except Exception:
                     service.opc.invalidate_cache()
-            service.refresh(manual=False)
+            # Do not block the sync loop on a long OPC browse — UI stays responsive
+            # and catalog_refresh is visible immediately.
+            def _refresh() -> None:
+                try:
+                    if getattr(service, "app", None) is not None:
+                        service.app.refresh_catalog()
+                    else:
+                        service.refresh(manual=False)
+                    try:
+                        service.db.set_service_state(
+                            "last_opc_device_scan",
+                            time.strftime("%Y-%m-%d %H:%M:%S"),
+                        )
+                    except Exception:
+                        pass
+                except Exception as exc:
+                    log.warning("Triggered catalog refresh failed: %s", exc)
+
+            import threading
+
+            try:
+                service.db.set_service_state("catalog_refresh", "1")
+                sync_fn = getattr(service, "_sync_health_caches_from_db", None)
+                if callable(sync_fn):
+                    sync_fn()
+            except Exception:
+                pass
+            threading.Thread(
+                target=_refresh, daemon=True, name="triggered-catalog-refresh"
+            ).start()

@@ -20,13 +20,28 @@ from layers.application.query import QueryService
 from layers.application.silworx_connection import SilworxConnectionService
 
 
+def _mark_catalog_busy(host: Any) -> None:
+    try:
+        host.db.set_service_state("catalog_refresh", "1")
+        sync_fn = getattr(host, "_sync_health_caches_from_db", None)
+        if callable(sync_fn):
+            sync_fn()
+    except Exception:
+        pass
+
+
 class ApplicationFacade:
     """Named use cases from HIMA-Prooftest-Layer-Functions.md."""
 
     def __init__(self, host: Any) -> None:
         self._host = host
         self.alarm_port = AlarmManagerAdapter(host.alarms)
-        self.opc_port = OpcManagerAdapter(host.opc, structures_fn=lambda: getattr(host, "structures", {}) or {})
+        self.opc_port = OpcManagerAdapter(
+            host.opc,
+            structures_fn=lambda: getattr(host, "structures", {}) or {},
+            shape_gate_ratio=float(getattr(host.config, "opc_shape_gate_ratio", 0.5)),
+            shape_gate_floor=int(getattr(host.config, "opc_shape_gate_floor", 3)),
+        )
         self.store_port = DatabaseStoreAdapter(host.db, getattr(host, "structures", {}) or {})
         self.report_port = AnnexReportAdapter(host.config, host.db, self.store_port)
         self.archive_port = AnnexListArchiveAdapter(host)
@@ -66,6 +81,7 @@ class ApplicationFacade:
             self.catalog,
             self.alarm_port,
             refresh_fn=lambda: host.refresh(manual=True),
+            mark_refresh_busy=lambda: _mark_catalog_busy(host),
         )
         self.engine = Engine(
             self.store_port,
@@ -121,9 +137,22 @@ class ApplicationFacade:
         return result
 
     def resume_silworx_connection(self) -> dict:
+        if getattr(self._host, "is_silworx_integration_released", lambda: False)():
+            return {
+                "silworx": "not connected",
+                "status": "released_for_uninstall",
+                "detail": "Use Re-integrate SILworX before Connect",
+                "engine_running": bool(self._host.engine_running),
+            }
         result = self.silworx_conn.resume_silworx_connection()
         result["engine_running"] = bool(self._host.engine_running)
         return result
+
+    def release_silworx_for_uninstall(self) -> dict:
+        return self._host.release_silworx_for_uninstall()
+
+    def reintegrate_silworx(self) -> dict:
+        return self._host.reintegrate_silworx()
 
     # --- Queries ---
 

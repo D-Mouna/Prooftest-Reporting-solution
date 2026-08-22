@@ -28,7 +28,7 @@ DIAGNOSTICS: Dict[str, Dict[str, str]] = {
     "S4": {
         "step": "S4",
         "title": "OPC discover / bind / read",
-        "solution": "Start X-OPC; confirm OTS ProofTest / OPC ProofTest branches; 32-bit Python.",
+        "solution": "Start X-OPC; use 32-bit Python; confirm Device_TAG.Running exists under the project's OPC resource folders.",
     },
     "S5": {
         "step": "S5",

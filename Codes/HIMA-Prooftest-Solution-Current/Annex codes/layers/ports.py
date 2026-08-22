@@ -48,6 +48,22 @@ class OpcPort(Protocol):
         self, server: str, item_id: str
     ) -> tuple[Optional[bool], str]: ...
 
+    def server_live_ok(self, server: str) -> Optional[bool]:
+        """True/False when known; None = not sampled yet (poll normally)."""
+        ...
+
+    def recheck_server_live(
+        self, server: str, running_item: Optional[str] = None
+    ) -> Optional[bool]:
+        """Optional: refresh live quality for a ProgID (resume monitoring after Bad)."""
+        ...
+
+    def mark_live_quality(
+        self, server: str, ok: bool, quality: str = ""
+    ) -> None:
+        """Optional: record last live quality sample for a ProgID."""
+        ...
+
     def discover_opc_only(
         self,
         known_types: set[str],
@@ -70,7 +86,9 @@ class StorePort(Protocol):
 
     def mark_inactive(self, device_id: str) -> None: ...
 
-    def insert_snapshot(self, device_tag: str, results_type: str, snapshot: dict) -> int: ...
+    def insert_snapshot(self, device_tag: str, results_type: str, snapshot: dict, **kwargs) -> int: ...
+
+    def snapshot_table_for(self, results_type: str) -> str: ...
 
     def update_report_path(self, table: str, record_id: int, report_path: str) -> None: ...
 

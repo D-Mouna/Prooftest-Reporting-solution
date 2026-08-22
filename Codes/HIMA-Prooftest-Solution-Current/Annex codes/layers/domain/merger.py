@@ -43,6 +43,35 @@ class MergeResult:
 class CatalogMerger:
     """Build catalog rows from SILworX + OPC. Never invent type by CSV score when SILworX typed the DeviceId."""
 
+    @staticmethod
+    def _tag_lookup_keys(tag: str) -> list[str]:
+        """SILworX TAG may use '/'; HIMA X-OPC often publishes the same leaf with '_'."""
+        text = str(tag or "")
+        keys = [text]
+        underscored = text.replace("/", "_")
+        if underscored != text:
+            keys.append(underscored)
+        return keys
+
+    @staticmethod
+    def _tags_equivalent(a: str, b: str) -> bool:
+        left, right = str(a or ""), str(b or "")
+        return left == right or left.replace("/", "_") == right.replace("/", "_")
+
+    def _opc_matches_for_tag(
+        self, tag: str, opc_by_tag: dict[str, list[OpcObservation]]
+    ) -> list[OpcObservation]:
+        matches: list[OpcObservation] = []
+        seen: set[int] = set()
+        for key in self._tag_lookup_keys(tag):
+            for obs in opc_by_tag.get(key) or []:
+                oid = id(obs)
+                if oid in seen:
+                    continue
+                seen.add(oid)
+                matches.append(obs)
+        return matches
+
     def merge(
         self,
         silworx: list[SilworxIdentity],
@@ -79,7 +108,7 @@ class CatalogMerger:
         bound_obs: set[int] = set()
 
         for key, device in list(devices.items()):
-            matches = opc_by_tag.get(device.device_tag) or []
+            matches = self._opc_matches_for_tag(device.device_tag, opc_by_tag)
             chosen = self._choose_opc_for_device(device, matches)
             if chosen is None:
                 continue
@@ -115,8 +144,13 @@ class CatalogMerger:
             if id(obs) in bound_obs:
                 continue
             # OPC-only when this tool is not attached, or TAG not in SILworX.
-            if obs.device_tag in used_tags_with_silworx and any(
-                d.device_tag == obs.device_tag and d.present_on_opc for d in devices.values()
+            if any(
+                self._tags_equivalent(obs.device_tag, sil_tag)
+                and any(
+                    self._tags_equivalent(d.device_tag, obs.device_tag) and d.present_on_opc
+                    for d in devices.values()
+                )
+                for sil_tag in used_tags_with_silworx
             ):
                 continue
             did = DeviceId("", "", "", obs.device_tag)
@@ -148,6 +182,49 @@ class CatalogMerger:
                 source_kind="opc",
             )
 
+        # Keep SILworX/project devices across cycles when the API is down or
+        # the project was closed — do not drop them just because silworx_rows is empty.
+        for key, prev in existing.items():
+            if key in devices:
+                continue
+            if not str(prev.device_id.project or "").strip():
+                continue
+            carried = Device(
+                device_id=prev.device_id,
+                results_type=prev.results_type,
+                opc_server=prev.opc_server,
+                opc_item_prefix=prev.opc_item_prefix,
+                present_on_opc=bool(prev.present_on_opc),
+                test_in_progress=bool(prev.test_in_progress),
+                last_running=prev.last_running,
+                is_active=True,
+                source_kind=prev.source_kind if prev.source_kind not in ("", "unknown", "opc") else "project",
+            )
+            matches = self._opc_matches_for_tag(carried.device_tag, opc_by_tag)
+            chosen = self._choose_opc_for_device(carried, matches)
+            if chosen is not None:
+                carried.opc_server = chosen.opc_server
+                carried.opc_item_prefix = chosen.opc_item_prefix
+                carried.present_on_opc = True
+            devices[key] = carried
+
+        # Prefer project-scoped rows over OPC-only (empty project) for the same TAG
+        # (including '/' vs '_' HIMA export aliases).
+        project_tags = {
+            d.device_tag
+            for d in devices.values()
+            if str(d.device_id.project or "").strip()
+        }
+        if project_tags:
+            devices = {
+                key: device
+                for key, device in devices.items()
+                if str(device.device_id.project or "").strip()
+                or not any(
+                    self._tags_equivalent(device.device_tag, pt) for pt in project_tags
+                )
+            }
+
         return MergeResult(
             devices=list(devices.values()),
             collisions=collisions,
@@ -162,12 +239,10 @@ class CatalogMerger:
             return None
         if len(matches) == 1:
             return matches[0]
-        # Prefer constructed OTS then OPC ProofTest prefixes ending with the TAG.
-        tag = device.device_tag
-        for branch in ("OTS ProofTest", "OPC ProofTest"):
-            want = f"{branch}.{tag}"
-            for obs in matches:
-                if obs.opc_item_prefix == want or obs.opc_item_prefix.endswith("." + tag):
-                    if obs.opc_item_prefix.startswith(branch) or obs.opc_item_prefix == want:
-                        return obs
+        # Prefer paths whose prefix ends with the device TAG (user folder names vary).
+        for obs in matches:
+            for tag in CatalogMerger._tag_lookup_keys(device.device_tag):
+                ending = "." + tag
+                if obs.opc_item_prefix == tag or obs.opc_item_prefix.endswith(ending):
+                    return obs
         return matches[0]

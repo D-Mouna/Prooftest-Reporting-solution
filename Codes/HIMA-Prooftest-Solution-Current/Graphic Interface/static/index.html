@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>HIMA Automated Prooftest</title>
   <link rel="icon" href="img/himalogo.png"/>
-  <link rel="stylesheet" href="style.css?v=1.78.0"/>
+  <link rel="stylesheet" href="style.css?v=1.79.0"/>
 </head>
 <body>
   <div id="service-banner" class="service-banner hidden" role="alert"></div>
@@ -32,6 +32,10 @@
           title="Attach this tool’s SILworX API/plugin only — does not open or close the engineer’s project">Connect to SILworX</button>
         <button id="btn-disconnect-silworx" type="button" class="btn-service btn-stop"
           title="Detach this tool only — does not quit SILworX, close the project, or kill c3.exe">Disconnect SILworX</button>
+        <button id="btn-release-silworx" type="button" class="btn-service btn-release"
+          title="Drop all tool SILworX locks (API/plugin/c3) so SILworX can be uninstalled. Tool keeps running on OPC.">Release SILworX</button>
+        <button id="btn-reintegrate-silworx" type="button" class="btn-service btn-reintegrate"
+          title="Re-enable SILworX API/plugin after SILworX was reinstalled">Re-integrate SILworX</button>
         <button id="btn-start-service" type="button" class="btn-service btn-start"
           title="Start the Prooftest engine (OPC poll + sync)">Start service</button>
         <button id="btn-stop-service" type="button" class="btn-service btn-stop"
@@ -92,7 +96,12 @@
         </div>
         <div id="opc-detail" class="opc-detail">
           <img src="img/hart.jpg" alt="" class="opc-icon logo-enlarged"/>
-          <span id="opc-detail-text">Loading OPC status…</span>
+          <div class="opc-detail-body">
+            <div class="opc-detail-label">OPC servers</div>
+            <ul id="opc-detail-list" class="opc-server-list" aria-live="polite">
+              <li class="opc-server-empty">Loading OPC status…</li>
+            </ul>
+          </div>
         </div>
       </article>
 
@@ -297,6 +306,6 @@
   </div>
 
   <script src="ui-paths.js?v=1.61"></script>
-  <script src="app.js?v=1.78.0"></script>
+  <script src="app.js?v=1.79.0"></script>
 </body>
 </html>

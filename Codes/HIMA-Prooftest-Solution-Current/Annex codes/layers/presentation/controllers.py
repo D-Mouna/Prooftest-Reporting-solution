@@ -233,6 +233,23 @@ class SilworxController:
                 )
             return application(service).resume_silworx_connection()
 
+        @app.post("/api/silworx/release")
+        def silworx_release(request: Request):
+            if not _is_local_client(request):
+                raise HTTPException(
+                    status_code=403, detail="SILworX release is allowed from localhost only"
+                )
+            return application(service).release_silworx_for_uninstall()
+
+        @app.post("/api/silworx/reintegrate")
+        def silworx_reintegrate(request: Request):
+            if not _is_local_client(request):
+                raise HTTPException(
+                    status_code=403,
+                    detail="SILworX re-integrate is allowed from localhost only",
+                )
+            return application(service).reintegrate_silworx()
+
 
 class DeviceController:
     def __init__(self, ctx: WebApp) -> None:
@@ -338,12 +355,38 @@ class ReportController:
 
         @app.get("/api/reports/open")
         def open_report(path: str):
+            from prooftest.annex_pdf_generation import prepare_report_html_for_http
+
             code, resolved = application(service).open_report(path)
             if code == 403:
                 raise HTTPException(status_code=403, detail="Path not allowed")
             if code == 404 or not resolved:
                 raise HTTPException(status_code=404, detail="Report not found")
+            report_path = Path(resolved)
+            if report_path.suffix.lower() in (".html", ".htm"):
+                html_text = report_path.read_text(encoding="utf-8", errors="replace")
+                body = prepare_report_html_for_http(html_text, report_path)
+                return HTMLResponse(body)
             return FileResponse(resolved)
+
+        @app.get("/api/reports/asset/{dir_token}/{asset_path:path}")
+        def report_asset(dir_token: str, asset_path: str):
+            from prooftest.annex_pdf_generation import decode_report_dir_token
+
+            host = service if service is not None else None
+            cfg = getattr(host, "config", None)
+            roots = []
+            if cfg is not None:
+                roots = [Path(cfg.report_output), Path(cfg.report_mirror)]
+            report_dir = decode_report_dir_token(dir_token, roots)
+            if report_dir is None:
+                raise HTTPException(status_code=403, detail="Path not allowed")
+            file_path = (report_dir / asset_path).resolve()
+            if not str(file_path).startswith(str(report_dir)):
+                raise HTTPException(status_code=403, detail="Path not allowed")
+            if not file_path.is_file():
+                raise HTTPException(status_code=404, detail="Asset not found")
+            return FileResponse(file_path)
 
 
 class AlarmController:

@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from prooftest.service import ProoftestService
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-APP_VERSION = "1.78.0"
+APP_VERSION = "1.79.0"
 
 def _is_local_client(request: Request) -> bool:
     """Gate tests patch this symbol to bypass localhost-only checks."""

@@ -23,6 +23,7 @@ _ANNEX_MODULES: dict[str, tuple[str, str]] = {
     "annex_database": ("Database", "annex_database.py"),
     "annex_api_connexion": ("API connexion", "annex_api_connexion.py"),
     "annex_opc": ("OPC", "annex_opc.py"),
+    "opc_snapshot": ("OPC", "opc_snapshot.py"),
     "annex_pdf_generation": ("PDF generation", "annex_pdf_generation.py"),
     "annex_list_archive": ("Database", "annex_list_archive.py"),
     "annex_stop_service": ("Stop service", "annex_stop_service.py"),

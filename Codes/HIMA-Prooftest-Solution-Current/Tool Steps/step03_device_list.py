@@ -525,11 +525,7 @@ def discover_devices_from_opc(
         return []
 
     all_tags = opc.list_tags_all_servers(servers)
-    log.info(
-        "Scanning %d X-OPC server(s) with shaped discover on branches %s",
-        len(servers),
-        getattr(opc, "prooftest_branches", ("OTS ProofTest", "OPC ProofTest")),
-    )
+    log.info("Scanning %d X-OPC server(s) with shaped Device_TAG discover", len(servers))
     shaped = discover_shaped_from_tag_lists(
         {str(srv): list(tags or []) for srv, tags in (all_tags or {}).items()},
         type_members_from_structures(structures),

@@ -9,11 +9,13 @@ simple built-in HTML table.
 from __future__ import annotations
 
 import html
+import math
 import re
+import base64
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from prooftest.annex_database import TEMPLATE_MAP
 from prooftest.config import AppConfig
@@ -47,6 +49,7 @@ HTML_TEMPLATE_FOLDER_MAP: Dict[str, str] = _build_html_template_folder_map()
 # Snapshot SQL column → template placeholder aliases (report.html uses mixed casing).
 _TEMPLATE_ALIASES: Dict[str, str] = {
     "Long_Tag": "Device_tag_long",
+    "Tag": "Device_tag",
     "Start_Timestamp": "Test_starttime",
     "End_Timestamp": "Test_endtime",
     "CRC_Before_Test": "CRC_before_test",
@@ -62,6 +65,11 @@ _TEMPLATE_ALIASES: Dict[str, str] = {
     "Error_Code": "Error_code",
     "Device_Type": "Device_type_extended",
     "Serial_Number": "Serial_number",
+    "Device_ID": "Device_ID",
+    "HBSI_Value": "HBSI_value",
+    "HBSI_Result": "HBSI_result",
+    "Device_Status": "Device_status",
+    "Transmitter_Units_Code": "Transmitter_units_code",
 }
 
 # Template placeholders filled from device tag / static report metadata (not OPC snapshot columns).
@@ -502,10 +510,14 @@ def format_value(value: Any, decimal_places: int = 3) -> str:
 def _format_template_scalar(value: Any, decimal_places: int) -> str:
     if value is None:
         return ""
+    if isinstance(value, float):
+        import math
+
+        if math.isnan(value):
+            return ""
+        return f"{value:.{decimal_places}f}"
     if isinstance(value, bool):
         return "True" if value else "False"
-    if isinstance(value, float):
-        return f"{value:.{decimal_places}f}"
     return str(value)
 
 
@@ -537,12 +549,13 @@ def build_template_context(
     decimal_places: int = 3,
 ) -> Dict[str, str]:
     """Map SQL snapshot columns to ``$(placeholder)`` values for report.html."""
+    hima_tag = str(device_tag or "")
     context: Dict[str, str] = {
-        "Device_tag": device_tag,
-        "Tag": device_tag,
-        "HIMA_system_tag": device_tag,
-        "Param_device_tag": device_tag,
-        "Device_tag_long": device_tag,
+        "Device_tag": hima_tag,
+        "Tag": hima_tag,
+        "HIMA_system_tag": hima_tag,
+        "Param_device_tag": hima_tag,
+        "Device_tag_long": hima_tag,
     }
 
     for key, raw in snapshot.items():
@@ -551,14 +564,31 @@ def build_template_context(
         if key in ("Start_Timestamp", "End_Timestamp"):
             context[key] = _format_udint_timestamp(raw)
         else:
-            context[key] = _format_template_scalar(raw, decimal_places)
+            formatted = _format_template_scalar(raw, decimal_places)
+            # Do not clobber identity fields with empty / numeric-zero OPC noise.
+            if key in ("Tag", "Device_tag", "HIMA_system_tag", "Device_tag_long", "Long_Tag") and (
+                not formatted or formatted in ("0", "0.0", "0.000")
+            ):
+                continue
+            context[key] = formatted
 
     for sql_col, placeholder in _TEMPLATE_ALIASES.items():
-        if sql_col in context and placeholder not in context:
-            if sql_col in ("Start_Timestamp", "End_Timestamp"):
-                context[placeholder] = _format_udint_timestamp(snapshot.get(sql_col))
-            else:
-                context[placeholder] = context[sql_col]
+        if sql_col not in context and sql_col not in snapshot:
+            continue
+        if placeholder in context and context[placeholder] and placeholder != sql_col:
+            # Keep existing non-empty alias target unless this is an explicit better source.
+            if sql_col not in ("Tag", "Long_Tag", "Serial_Number"):
+                continue
+        if sql_col in ("Start_Timestamp", "End_Timestamp"):
+            context[placeholder] = _format_udint_timestamp(snapshot.get(sql_col))
+        elif sql_col in context:
+            context[placeholder] = context[sql_col]
+        else:
+            context[placeholder] = _format_template_scalar(snapshot.get(sql_col), decimal_places)
+
+    # HIMA system tag is always the OPC/SILworX device variable name.
+    context["HIMA_system_tag"] = hima_tag
+    context["Param_device_tag"] = hima_tag
 
     _apply_numeric_test_point_aliases(context, snapshot, decimal_places)
     _apply_structure_column_variants(context, snapshot, decimal_places)
@@ -594,12 +624,18 @@ def copy_template_assets(template_dir: Path, output_dir: Path) -> None:
         return
     dest_img = output_dir / "img"
     dest_img.mkdir(parents=True, exist_ok=True)
+    skip_names = {"thumbs.db", "desktop.ini"}
     for item in src_img.iterdir():
+        if item.name.lower() in skip_names:
+            continue
         target = dest_img / item.name
         if item.is_dir():
             shutil.copytree(item, target, dirs_exist_ok=True)
         else:
-            shutil.copy2(item, target)
+            try:
+                shutil.copy2(item, target)
+            except OSError:
+                continue
 
 
 def build_html_report_from_template(
@@ -757,6 +793,160 @@ def write_reports(
     return written
 
 
+_HIMA_LABEL_KEYS: Dict[str, str] = {
+    "serial number": "Serial_Number",
+    "device tag": "Tag",
+    "device tag (long)": "Long_Tag",
+    "hima system tag": "HIMA_system_tag",
+    "device name": "Device_Type",
+    "device id": "Device_ID",
+    "manufacturer": "Manufacturer",
+    "device revision": "Device_Revision",
+    "hardware revision": "Hardware_Revision",
+    "software revision": "Software_Revision",
+    "date/time start proof test": "Start_Timestamp",
+    "date/time end proof test": "End_Timestamp",
+    "alarm selection": "Alarm_Selection",
+    "transfer function": "Transfer_Function",
+    "lower range value": "Lower_Range_Value",
+    "upper range value": "Upper_Range_Value",
+    "damping value": "Damping_Value",
+    "precision": "Precision",
+    "installation direction": "Installation_direction",
+    "assigned current output": "Assigned_current_output",
+    "current span": "Current_span",
+    "output mode": "Output_mode",
+    "4 ma value": "value_4_mA",
+    "20 ma value": "value_20_mA",
+    "damping": "Damping",
+    "failure mode": "Failure_mode",
+    " failure mode": "Failure_mode",
+    "medium": "Medium",
+    "gas type": "Gas_type",
+    "reference sound velocity": "Reference_sound_velocity",
+    "temperature coefficient": "Temperature_coefficient",
+    "partially filled pipe detection": "Partially_filled_pipe_detection",
+    "low value partial filled pipe detection": "Low_value_partial_filled_pipe_detection",
+    "high value partial filled pipe detection": "High_value_partial_filled_pipe_detection",
+    "maximum damping partial filled pipe detection": "Maximum_damping_partial_filled_pipe_detection",
+    "assigned low flow cutoff": "Assigned_low_flow_cutoff",
+    "off value low flow cutoff": "Off_value_low_flow_cutoff",
+    "on value low flow cutoff": "On_value_low_flow_cutoff",
+    "pressure shock suppression": "Pressure_shock_suppression",
+    "pressure compensation": "Pressure_compensation",
+    "pressure value": "Pressure_value",
+    "zero point": "Zero_point",
+}
+
+_LABEL_VALUE_RE = re.compile(
+    r'<div class="value-left">\s*([^<]+?)\s*</div>\s*'
+    r'<div class="value-(?:center|right|centerright)">\s*([^<]*?)\s*</div>',
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def parse_hima_html_snapshot(html_text: str) -> Dict[str, Any]:
+    """Best-effort extract field values from a rendered HIMA ``report.html``."""
+    snapshot: Dict[str, Any] = {}
+    for match in _LABEL_VALUE_RE.finditer(html_text):
+        label = re.sub(r"\s+", " ", match.group(1)).strip().lower()
+        value = html.unescape(match.group(2).strip())
+        if not label:
+            continue
+        key = _HIMA_LABEL_KEYS.get(label)
+        if not key:
+            continue
+        if value == "" or value.lower() == "nan":
+            continue
+        snapshot[key] = value
+
+    summary = re.search(r'proof-summary proof-summary-(True|False)', html_text, re.I)
+    if summary:
+        snapshot["Error"] = summary.group(1).lower() == "true"
+
+    for n in range(1, 6):
+        for label, prefix in (
+            (f"value {n}", f"Test_Point_{n}"),
+            (f"test value {n}", f"Test_Point_{n}"),
+        ):
+            pass
+    # Loopcheck rows: Value N / Test value / Actual value columns
+    row_re = re.compile(
+        r'<div class="value-left">\s*Value\s+(\d+)\s*</div>\s*'
+        r'<div class="value-center">\s*([^<]*?)\s*</div>\s*'
+        r'<div class="value-right">\s*([^<]*?)\s*</div>',
+        re.I | re.DOTALL,
+    )
+    for m in row_re.finditer(html_text):
+        idx = m.group(1)
+        test_val = html.unescape(m.group(2).strip())
+        actual_val = html.unescape(m.group(3).strip())
+        if test_val and test_val.lower() != "nan":
+            snapshot[f"Test_Point_{idx}"] = test_val.replace(" mA", "").strip()
+        if actual_val and actual_val.lower() != "nan":
+            snapshot[f"Actual_Value_{idx}"] = actual_val.replace(" mA", "").strip()
+
+    return snapshot
+
+
+def merge_snapshots_prefer_existing(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge snapshots; keep non-empty ``base`` values, fill gaps from ``overlay``."""
+    out = dict(overlay)
+    for key, val in base.items():
+        if val is None:
+            continue
+        if isinstance(val, float) and math.isnan(val):
+            continue
+        if isinstance(val, str) and not val.strip():
+            continue
+        out[key] = val
+    return out
+
+
+def results_type_from_folder(folder_name: str) -> Optional[str]:
+    for results_type in RESULTS_TYPE_FILES:
+        if results_type_folder_name(results_type) == folder_name:
+            return results_type
+    return None
+
+
+def device_tag_from_report_path(html_path: Path) -> str:
+    stem = html_path.stem
+    m = re.match(r"^(.+)_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$", stem)
+    if m:
+        return m.group(1)
+    return html_path.parent.name
+
+
+def rewrite_report_at_path(
+    html_path: Path,
+    config: AppConfig,
+    results_type: str,
+    device_tag: str,
+    snapshot: Dict[str, Any],
+    *,
+    quality_notes: Optional[List[str]] = None,
+) -> bool:
+    """Re-render a HIMA template report in place at ``html_path``."""
+    if "Proof test report" not in html_path.read_text(encoding="utf-8", errors="replace"):
+        return False
+    body = build_html_report(
+        device_tag,
+        results_type,
+        snapshot,
+        quality_notes=quality_notes or [],
+        decimal_places=config.report_decimal_places,
+        templates_root=config.report_html_templates,
+    )
+    if "Proof test report" not in body and "HIMA Automated Prooftest Report" in body:
+        return False
+    html_path.write_text(body, encoding="utf-8")
+    template_path = resolve_html_template_path(config.report_html_templates, device_tag, results_type)
+    if template_path is not None:
+        copy_template_assets(template_path.parent, html_path.parent)
+    return True
+
+
 def list_reports_for_device(
     output_dir: Path,
     device_tag: str,
@@ -782,8 +972,7 @@ def list_reports_for_device(
             scoped = type_dir / safe_project / safe
             if scoped.is_dir():
                 search_dirs.append(scoped)
-                return
-        if legacy.is_dir():
+        if legacy.is_dir() and legacy not in search_dirs:
             search_dirs.append(legacy)
 
     if results_type:
@@ -810,3 +999,45 @@ def list_reports_for_device(
                 )
     files.sort(key=lambda x: x["modified"], reverse=True)
     return files
+
+
+def encode_report_dir_token(report_dir: Path) -> str:
+    """URL-safe token for a report folder (used by ``/api/reports/asset/``)."""
+    return base64.urlsafe_b64encode(str(report_dir.resolve()).encode("utf-8")).decode("ascii").rstrip("=")
+
+
+def decode_report_dir_token(token: str, allowed_roots: Sequence[Path]) -> Optional[Path]:
+    """Decode ``encode_report_dir_token``; return None when outside allowed report roots."""
+    if not token:
+        return None
+    padded = token + ("=" * (-len(token) % 4))
+    try:
+        report_dir = Path(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")).resolve()
+    except (ValueError, OSError):
+        return None
+    for root in allowed_roots:
+        try:
+            report_dir.relative_to(root.resolve())
+            return report_dir
+        except ValueError:
+            continue
+    return None
+
+
+def inject_report_base_href(html_text: str, base_href: str) -> str:
+    """Insert ``<base href=...>`` so relative ``img/`` assets load over HTTP."""
+    if re.search(r"<base\s", html_text, re.I):
+        return html_text
+    tag = f'<base href="{html.escape(base_href, quote=True)}">'
+    match = re.search(r"<head[^>]*>", html_text, re.I)
+    if match:
+        insert_at = match.end()
+        return html_text[:insert_at] + "\n" + tag + html_text[insert_at:]
+    return tag + "\n" + html_text
+
+
+def prepare_report_html_for_http(html_text: str, report_file: Path) -> str:
+    """Rewrite HIMA template HTML so CSS/logos resolve when opened from the web UI."""
+    token = encode_report_dir_token(report_file.parent)
+    base_href = f"/api/reports/asset/{token}/"
+    return inject_report_base_href(html_text, base_href)

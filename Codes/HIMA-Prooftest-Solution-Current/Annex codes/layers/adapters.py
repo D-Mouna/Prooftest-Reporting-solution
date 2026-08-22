@@ -48,9 +48,13 @@ class OpcManagerAdapter:
         opc: Any,
         *,
         structures_fn: Optional[Callable[[], dict]] = None,
+        shape_gate_ratio: float = 0.5,
+        shape_gate_floor: int = 3,
     ) -> None:
         self._opc = opc
         self._structures_fn = structures_fn or (lambda: {})
+        self._shape_gate_ratio = float(shape_gate_ratio)
+        self._shape_gate_floor = int(shape_gate_floor)
 
     def discover_servers(self) -> list[str]:
         return list(self._opc.discover_servers()) if hasattr(self._opc, "discover_servers") else []
@@ -86,11 +90,38 @@ class OpcManagerAdapter:
     def read_running(self, server: str, item_id: str) -> tuple[Optional[bool], str]:
         read_map = self._opc.read_values(server, [item_id])
         value, quality = read_map.get(item_id, (None, "Bad"))
-        if str(quality).lower() != "good":
-            return None, str(quality)
+        quality_text = str(quality or "Bad")
+        ok = quality_text.lower() == "good"
+        mark = getattr(self._opc, "mark_live_quality", None)
+        if callable(mark):
+            try:
+                mark(server, ok, quality_text)
+            except Exception:
+                pass
+        if not ok:
+            return None, quality_text
         if value is None:
-            return None, str(quality)
-        return bool(value), str(quality)
+            return None, quality_text
+        return bool(value), quality_text
+
+    def server_live_ok(self, server: str) -> Optional[bool]:
+        fn = getattr(self._opc, "server_live_ok", None)
+        if callable(fn):
+            return fn(server)
+        return None
+
+    def recheck_server_live(
+        self, server: str, running_item: Optional[str] = None
+    ) -> Optional[bool]:
+        fn = getattr(self._opc, "recheck_server_live", None)
+        if callable(fn):
+            return fn(server, running_item)
+        return self.server_live_ok(server)
+
+    def mark_live_quality(self, server: str, ok: bool, quality: str = "") -> None:
+        fn = getattr(self._opc, "mark_live_quality", None)
+        if callable(fn):
+            fn(server, ok, quality)
 
     def discover_opc_only(
         self,
@@ -125,6 +156,8 @@ class OpcManagerAdapter:
                 tags_by_server,
                 type_members_from_structures(structures),
                 last_types_by_tag=last_types_by_tag or {},
+                gate_n=self._shape_gate_floor,
+                gate_ratio=self._shape_gate_ratio,
             )
             return list(shaped.observations)
         except Exception:
@@ -175,13 +208,95 @@ class DatabaseStoreAdapter:
 
     def insert_snapshot(self, device_tag: str, results_type: str, snapshot: dict, **kwargs) -> int:
         table = _structure_to_sql_table(results_type)
-        record_id = self._db.insert_snapshot(
-            table,
-            device_tag,
-            snapshot,
-            opc_server=kwargs.get("opc_server"),
-            sequence=kwargs.get("sequence"),
-        )
+        structure = (self._structures or {}).get(results_type)
+        filtered = {k: v for k, v in snapshot.items() if not str(k).startswith("_")}
+        if structure is not None:
+            from prooftest.results_csv import member_to_column
+
+            allowed = {
+                member_to_column(f"{structure.type_name}.{name}", structure.type_name)
+                for name in structure.member_short_names()
+            }
+            allowed.update(
+                {
+                    "Device_TAG",
+                    "OPC_Server",
+                    "CollectedAt",
+                    "SequenceInBatch",
+                    "ReportPath",
+                    "Error_code",
+                    "Error_Code",
+                    "Installation_direction",
+                    "Assigned_current_output",
+                    "Current_span",
+                    "Output_mode",
+                    "value_4_mA",
+                    "value_20_mA",
+                    "Damping",
+                    "Failure_mode",
+                    "Medium",
+                    "Gas_type",
+                    "Reference_sound_velocity",
+                    "Temperature_coefficient",
+                    "Partially_filled_pipe_detection",
+                    "Low_value_partial_filled_pipe_detection",
+                    "High_value_partial_filled_pipe_detection",
+                    "Maximum_damping_partial_filled_pipe_detection",
+                    "Assigned_low_flow_cutoff",
+                    "Off_value_low_flow_cutoff",
+                    "On_value_low_flow_cutoff",
+                    "Pressure_shock_suppression",
+                    "Pressure_compensation",
+                    "Pressure_value",
+                    "Zero_point",
+                    "Serial_number",
+                    "Device_tag",
+                    "Device_tag_long",
+                    "HIMA_system_tag",
+                    "Test_starttime",
+                    "Test_endtime",
+                    "Alarm_selection",
+                    "Transfer_function",
+                    "Lower_range_value",
+                    "Upper_range_value",
+                    "Damping_value",
+                    "Transmitter_units_code",
+                    "HBSI_value",
+                    "HBSI_result",
+                    "Heartbeat_verif_result",
+                    "Device_status",
+                    "Device_type_extended",
+                }
+            )
+            filtered = {k: v for k, v in filtered.items() if k in allowed}
+        try:
+            record_id = self._db.insert_snapshot(
+                table,
+                device_tag,
+                filtered,
+                opc_server=kwargs.get("opc_server"),
+                sequence=kwargs.get("sequence"),
+            )
+        except Exception:
+            # CSV-only tables may lack HIMA flattened columns — retry with Results members only.
+            if structure is not None:
+                from prooftest.results_csv import member_to_column
+
+                member_cols = {
+                    member_to_column(f"{structure.type_name}.{name}", structure.type_name)
+                    for name in structure.member_short_names()
+                }
+                member_cols.update({"Device_TAG", "OPC_Server", "CollectedAt", "SequenceInBatch", "ReportPath"})
+                slim = {k: v for k, v in filtered.items() if k in member_cols}
+                record_id = self._db.insert_snapshot(
+                    table,
+                    device_tag,
+                    slim,
+                    opc_server=kwargs.get("opc_server"),
+                    sequence=kwargs.get("sequence"),
+                )
+            else:
+                raise
         self.last_table = table
         self.last_record_id = record_id
         return record_id
@@ -338,20 +453,24 @@ class Case1SyncSilworxAdapter:
         return bool(self._case1.is_tool_attached())
 
     def attach(self) -> bool:
-        """Clear suspend, ensure plugin monitor, and attach to a user-open GUI session."""
+        """Clear suspend, ensure plugin monitor, and attach every reachable GUI session."""
         self._case1.resume_tool_clients()
-        if self._case1.is_tool_attached():
-            return True
+        attached_any = bool(self._case1.is_tool_attached())
         try:
             for instance in self._case1.discover_api_instances(force=True) or []:
                 api_port = getattr(instance, "api_port", None)
                 if api_port is None:
                     continue
-                if self._case1._try_attach_gui_session_on_port(int(api_port)):
-                    return True
+                # Skip ports whose plugin already has no listener after a short probe.
+                try:
+                    if self._case1._try_attach_gui_session_on_port(int(api_port)):
+                        attached_any = True
+                except Exception as exc:
+                    log = __import__("logging").getLogger(__name__)
+                    log.warning("Attach on API %s failed: %s", api_port, exc)
         except Exception:
             pass
-        return bool(self._case1.is_tool_attached())
+        return attached_any or bool(self._case1.is_tool_attached())
 
     def detach(self) -> None:
         self._case1.detach_tool_clients()

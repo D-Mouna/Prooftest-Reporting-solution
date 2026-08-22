@@ -1,0 +1,26 @@
+Name,Data type,Initial Value,Sequence Number
+X-HART_E+H_Promass300/500_Parameters,,,
+X-HART_E+H_Promass300/500_Parameters.4 mA value,X-HART_ASCII_32,,5
+X-HART_E+H_Promass300/500_Parameters.20 mA value,X-HART_ASCII_32,,6
+X-HART_E+H_Promass300/500_Parameters.Assigned current output,UINT,,2
+X-HART_E+H_Promass300/500_Parameters.Assigned low flow cutoff,UINT,,17
+X-HART_E+H_Promass300/500_Parameters.Character test string,X-HART_ASCII_14,,0
+X-HART_E+H_Promass300/500_Parameters.Current span,UINT,,3
+X-HART_E+H_Promass300/500_Parameters.Damping,X-HART_ASCII_20,,7
+X-HART_E+H_Promass300/500_Parameters.Failure mode,UINT,,8
+X-HART_E+H_Promass300/500_Parameters.Gas type,UINT,,10
+X-HART_E+H_Promass300/500_Parameters.High value partial filled pipe detection,X-HART_ASCII_32,,15
+X-HART_E+H_Promass300/500_Parameters.Installation direction,UINT,,1
+X-HART_E+H_Promass300/500_Parameters.Low value partial filled pipe detection,X-HART_ASCII_32,,14
+X-HART_E+H_Promass300/500_Parameters.Maximum damping partial filled pipe det,X-HART_ASCII_20,,16
+X-HART_E+H_Promass300/500_Parameters.Medium,UINT,,9
+X-HART_E+H_Promass300/500_Parameters.Off value low flow cutoff,X-HART_ASCII_32,,18
+X-HART_E+H_Promass300/500_Parameters.On value low flow cutoff,X-HART_ASCII_32,,19
+X-HART_E+H_Promass300/500_Parameters.Output mode,UINT,,4
+X-HART_E+H_Promass300/500_Parameters.Partially filled pipe detection,UINT,,13
+X-HART_E+H_Promass300/500_Parameters.Pressure compensation,UINT,,21
+X-HART_E+H_Promass300/500_Parameters.Pressure shock suppression,X-HART_ASCII_32,,20
+X-HART_E+H_Promass300/500_Parameters.Pressure value,X-HART_ASCII_32,,22
+X-HART_E+H_Promass300/500_Parameters.Reference sound velocity,X-HART_ASCII_32,,11
+X-HART_E+H_Promass300/500_Parameters.Temperature coefficient,X-HART_ASCII_32,,12
+X-HART_E+H_Promass300/500_Parameters.Zero point,X-HART_ASCII_20,,23

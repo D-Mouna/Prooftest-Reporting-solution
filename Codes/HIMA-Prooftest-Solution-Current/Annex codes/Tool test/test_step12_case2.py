@@ -48,10 +48,8 @@ def _open_gate_database(config: AppConfig) -> Database:
 class MockOpcUnified:
     """Minimal OPC stub for OPC device discovery."""
 
-    prooftest_branches = ["OTS ProofTest", "OPC ProofTest"]
-
     def __init__(self, structure_members: List[str], device_tag: str = TEST_DEVICE) -> None:
-        self._prefix = f"OTS ProofTest.{device_tag}"
+        self._prefix = f"ResourceA.{device_tag}"
         self._tags = [f"{self._prefix}.Running"]
         for member in structure_members:
             short = member.split(".")[-1]

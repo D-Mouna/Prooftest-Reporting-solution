@@ -25,11 +25,7 @@ def main() -> int:
     db = Database(config, alarms)
     db.connect()
     structures = load_all_structures(config.results_structures)
-    opc = OpcManager(
-        config.opc_server_filter,
-        config.opc_default_branch,
-        config.opc_prooftest_branches,
-    )
+    opc = OpcManager(config.opc_server_filter)
     case1_sync = Case1SyncTriggers(config, SYNC_MARKERS)
 
     open_sessions = discover_open_projects(config.silworx_programdata)

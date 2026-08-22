@@ -165,6 +165,11 @@ async function waitForCatalogRefreshIdle(timeoutMs = 180000) {
           hideServiceBanner();
           return health;
         }
+        // Catalog never went busy (or already finished) — do not leave the banner stuck.
+        if (!sawBusy && idleStreak >= 3) {
+          hideServiceBanner();
+          return health;
+        }
       }
     } catch (_err) {
       /* keep waiting */
@@ -178,13 +183,17 @@ async function waitForCatalogRefreshIdle(timeoutMs = 180000) {
 async function updateServiceButtons(health) {
   const startBtn = document.getElementById("btn-start-service");
   const stopBtn = document.getElementById("btn-stop-service");
+  const connectBtn = document.getElementById("btn-connect-silworx");
+  const disconnectBtn = document.getElementById("btn-disconnect-silworx");
+  const releaseBtn = document.getElementById("btn-release-silworx");
+  const reintegrateBtn = document.getElementById("btn-reintegrate-silworx");
   if (!UI.isLive) {
     startBtn.disabled = true;
     stopBtn.disabled = true;
-    const c = document.getElementById("btn-connect-silworx");
-    const d = document.getElementById("btn-disconnect-silworx");
-    if (c) c.disabled = true;
-    if (d) d.disabled = true;
+    if (connectBtn) connectBtn.disabled = true;
+    if (disconnectBtn) disconnectBtn.disabled = true;
+    if (releaseBtn) releaseBtn.disabled = true;
+    if (reintegrateBtn) reintegrateBtn.disabled = true;
     return;
   }
   if (!health) {
@@ -198,13 +207,14 @@ async function updateServiceButtons(health) {
   }
   const starting = !!health.starting;
   const running = !!health.engine_running && !health.stopping && !starting;
+  const released = String(health.silworx_integration || "").toLowerCase() === "released";
   startBtn.disabled = running || starting;
   stopBtn.disabled = !running || starting;
-  const connectBtn = document.getElementById("btn-connect-silworx");
-  const disconnectBtn = document.getElementById("btn-disconnect-silworx");
   const silRunning = String(health.silworx_status || "").toLowerCase() === "running";
-  if (connectBtn) connectBtn.disabled = !running || silRunning;
-  if (disconnectBtn) disconnectBtn.disabled = !running || !silRunning;
+  if (connectBtn) connectBtn.disabled = !running || silRunning || released;
+  if (disconnectBtn) disconnectBtn.disabled = !running || !silRunning || released;
+  if (releaseBtn) releaseBtn.disabled = !running || released;
+  if (reintegrateBtn) reintegrateBtn.disabled = !running || !released;
 }
 
 async function waitForEngineRunning(timeoutMs = 180000) {
@@ -348,6 +358,23 @@ function renderHealth(data) {
   const silworxStatus = String(data.silworx_status || "").toLowerCase();
   const silText = silworxStatus === "running" ? "tool attached" : "tool not connected";
   const silState = silworxStatus === "running" ? "ok" : "warn";
+  const openProjects = Array.isArray(data.open_projects) ? data.open_projects : [];
+  const openFromState = String(st.silworx_open_projects || "")
+    .split(";")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const openNames = openProjects.length
+    ? openProjects.map((p) => p.project_name || p.project_file || p.session_id).filter(Boolean)
+    : openFromState;
+  const openText =
+    openNames.length <= 1
+      ? openNames[0] || sil.project_name || sil.silworx_project_name || "—"
+      : `${openNames.length} open · ${openNames.join(" · ")}`;
+  const attachedMap = data.attached_projects || {};
+  const attachedNames = Object.keys(attachedMap)
+    .map((port) => `${attachedMap[port]} (${port})`)
+    .filter(Boolean);
+  const attachedText = attachedNames.length ? attachedNames.join(" · ") : "—";
 
   const queueState = (data.queue_depth || 0) > 10 ? "warn" : "";
   const pluginInfo = data.plugin_session || {};
@@ -390,22 +417,44 @@ function renderHealth(data) {
       ${healthCard("Plugin session", pluginText, pluginState)}
       ${healthCard("Queue depth", String(data.queue_depth ?? 0), queueState)}
     </div>`,
+    `<div class="health-row health-row-mid">
+      ${healthCard("Open SILworX projects", openText, openNames.length > 1 ? "ok" : "")}
+      ${healthCard("API-scanned projects", attachedText, attachedNames.length ? "ok" : "warn")}
+    </div>`,
   ].join("");
 
   const servers = data.opc_servers || [];
-  const opcText = document.getElementById("opc-detail-text");
-  if (opcText) {
+  const opcList = document.getElementById("opc-detail-list");
+  if (opcList) {
     if (!servers.length) {
-      opcText.textContent = "OPC: no X-OPC servers detected on this host.";
+      opcList.innerHTML = `<li class="opc-server-empty">No X-OPC servers detected on this host.</li>`;
     } else {
-      opcText.innerHTML =
-        "<strong>OPC servers:</strong> " +
-        servers
-          .map((s) => {
-            const status = s.connected ? `${s.tags} tags` : "offline";
-            return `${escapeHtml(s.name)} (${status})`;
-          })
-          .join(" · ");
+      opcList.innerHTML = servers
+        .map((s) => {
+          let status = "offline";
+          let statusClass = "is-offline";
+          const devices = Number(s.devices);
+          const tags = Number(s.tags);
+          if (s.connected) {
+            if (s.browse_ok === false && !tags && !devices) {
+              status = "browse failed";
+              statusClass = "is-bad";
+            } else if (s.live_ok === false) {
+              status = `${Number.isFinite(devices) ? devices : 0} devices, live bad`;
+              statusClass = "is-bad";
+            } else {
+              status = `${Number.isFinite(devices) ? devices : 0} devices`;
+              statusClass = "is-ok";
+            }
+          }
+          return (
+            `<li>` +
+            `<span class="opc-server-name">${escapeHtml(s.name)}</span>` +
+            `<span class="opc-server-status ${statusClass}">${escapeHtml(status)}</span>` +
+            `</li>`
+          );
+        })
+        .join("");
     }
   }
 
@@ -442,8 +491,11 @@ function renderOfflineHealth() {
     healthCard("Database", "—", ""),
     healthCard("Service", "not connected", "warn"),
   ].join("");
-  document.getElementById("opc-detail-text").textContent =
-    "Start the Prooftest service and open http://127.0.0.1:8080/ for live data.";
+  const opcList = document.getElementById("opc-detail-list");
+  if (opcList) {
+    opcList.innerHTML =
+      `<li class="opc-server-empty">Start the Prooftest service and open http://127.0.0.1:8080/ for live data.</li>`;
+  }
   document.getElementById("health-status-badge").textContent = "offline";
   document.getElementById("health-status-badge").className = "panel-badge panel-badge-warn";
 }
@@ -828,6 +880,7 @@ async function refreshAll(manual = false) {
 
 let pollFailStreak = 0;
 let pollInFlight = false;
+let lastCatalogBusy = false;
 
 async function pollStatus() {
   if (!UI.isLive || pollInFlight) return;
@@ -837,9 +890,21 @@ async function pollStatus() {
     health = await fetchJson("/api/health", { timeoutMs: 4000 });
     renderHealth(health);
     pollFailStreak = 0;
-    if (!catalogRefreshBusy(health)) {
+    const busy = catalogRefreshBusy(health);
+    if (!busy) {
       hideServiceBanner();
+    } else {
+      showServiceBanner("Refreshing device list — waiting for catalog…");
     }
+    // Reload devices as soon as a catalog refresh finishes (don't wait another 8s).
+    if (lastCatalogBusy && !busy) {
+      try {
+        await loadDevices();
+      } catch (_ignore) {
+        /* keep UI alive */
+      }
+    }
+    lastCatalogBusy = busy;
   } catch (err) {
     pollFailStreak += 1;
     if (pollFailStreak >= 2) {
@@ -903,6 +968,47 @@ if (disconnectSil) {
       await refreshAll(false);
     } catch (err) {
       showServiceBanner(`Disconnect SILworX failed: ${err.message}`);
+    }
+  };
+}
+const releaseSil = document.getElementById("btn-release-silworx");
+if (releaseSil) {
+  releaseSil.onclick = async () => {
+    if (
+      !confirm(
+        "Release SILworX from this tool?\n\n" +
+          "This detaches the API/plugin and may stop leftover c3.exe processes so SILworX can be uninstalled.\n" +
+          "The report tool keeps running on OPC only.\n\n" +
+          "Use Re-integrate SILworX after SILworX is reinstalled."
+      )
+    ) {
+      return;
+    }
+    try {
+      const result = await fetchJson("/api/silworx/release", { method: "POST", timeoutMs: 120000 });
+      showServiceBanner(
+        `SILworX released for uninstall (${result.status || "released"}). Tool continues on OPC.`
+      );
+      await refreshAll(false);
+    } catch (err) {
+      showServiceBanner(`Release SILworX failed: ${err.message}`);
+    }
+  };
+}
+const reintegrateSil = document.getElementById("btn-reintegrate-silworx");
+if (reintegrateSil) {
+  reintegrateSil.onclick = async () => {
+    try {
+      const result = await fetchJson("/api/silworx/reintegrate", {
+        method: "POST",
+        timeoutMs: 120000,
+      });
+      showServiceBanner(
+        `SILworX re-integrated (${result.silworx || result.status || "integrated"}).`
+      );
+      await refreshAll(false);
+    } catch (err) {
+      showServiceBanner(`Re-integrate SILworX failed: ${err.message}`);
     }
   };
 }
@@ -1070,5 +1176,5 @@ setupListSearch("device-search", "device-list", "device");
 setupListSearch("report-search", "report-list", "report");
 setupDeviceViewOptions();
 if (UI.isLive) {
-  setInterval(pollStatus, 8000);
+  setInterval(pollStatus, 2000);
 }

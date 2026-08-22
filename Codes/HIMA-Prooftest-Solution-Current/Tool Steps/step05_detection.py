@@ -16,7 +16,7 @@ from layers.application.live_test import LiveTestService
 from layers.domain.device import Device, device_from_row
 from prooftest.config import AppConfig
 from prooftest.annex_database import Database
-from prooftest.results_csv import ResultsStructure, member_to_column
+from prooftest.results_csv import ResultsStructure, member_to_column, annexes_directory, load_annex_types, member_column_dtype_map, is_ascii_type, is_parameters_type
 from prooftest.step04_opc import OpcManager
 
 log = __import__("logging").getLogger(__name__)
@@ -43,6 +43,18 @@ class ProoftestMonitor:
         self.db = db
         self.opc = opc
         self.structures = structures
+        self._annex_types = load_annex_types(annexes_directory(config.results_structures))
+        if self._annex_types:
+            log.info(
+                "Loaded %d annex type(s) from %s",
+                len(self._annex_types),
+                annexes_directory(config.results_structures),
+            )
+        else:
+            log.warning(
+                "No annex types loaded — ASCII/Parameters OPC decode needs "
+                "Results Structures/Annexes/*.csv (e.g. X-HART_ASCII_32, X-HART_*_Parameters)"
+            )
         self._queue: queue.Queue = queue.Queue()
         self._report_lock = threading.Lock()
         self._stop = threading.Event()
@@ -68,6 +80,11 @@ class ProoftestMonitor:
             )
         self._worker = threading.Thread(target=self._report_worker, daemon=True, name="report-worker")
         self._worker.start()
+
+    def reload_type_catalog(self) -> None:
+        """Reload annex nested types after Results Structures catalogue changes."""
+        self._annex_types = load_annex_types(annexes_directory(self.config.results_structures))
+        log.info("Annex type catalogue reloaded: %d type(s)", len(self._annex_types))
 
     def shutdown(self, timeout: float = 30.0) -> None:
         """Stop the report worker and drain or abandon the completion queue."""
@@ -115,6 +132,7 @@ class ProoftestMonitor:
         binding = self.opc.resolve_device_binding(
             device.device_tag,
             device.opc_item_prefix,
+            servers=[device.opc_server] if device.opc_server else None,
         )
         if not binding or not binding.running_item_id:
             return {}, ["No OPC binding"]
@@ -142,6 +160,8 @@ class ProoftestMonitor:
         prefix: str,
         structure: ResultsStructure,
     ) -> tuple[Dict[str, Any], List[str]]:
+        from prooftest.opc_snapshot import enrich_snapshot_from_opc, value_is_empty
+
         short_names = [n for n in structure.member_short_names() if n.lower() != "running"]
         item_map = self.opc.build_member_item_ids(tags, prefix, short_names)
         item_ids = list(item_map.values())
@@ -150,12 +170,34 @@ class ProoftestMonitor:
         values = self.opc.read_values(server, item_ids)
         snapshot: Dict[str, Any] = {}
         notes: List[str] = []
+        col_dtypes = member_column_dtype_map(structure)
+        member_types: Dict[str, str] = {}
         for member, item_id in item_map.items():
             val, quality = values.get(item_id, (None, "Bad"))
             col = member_to_column(f"{structure.type_name}.{member}", structure.type_name)
             snapshot[col] = val
+            dtype = col_dtypes.get(col, "")
+            member_types[col] = dtype
             if str(quality).lower() != "good":
                 notes.append(f"{member}: quality {quality}")
+            elif value_is_empty(val) and dtype and (
+                is_ascii_type(dtype)
+                or is_parameters_type(dtype, self._annex_types)
+            ):
+                notes.append(f"{member}: quality Empty")
+
+        def _read(ids: List[str]) -> Dict[str, tuple]:
+            return self.opc.read_values(server, ids)
+
+        snapshot, notes = enrich_snapshot_from_opc(
+            tags=tags,
+            prefix=prefix,
+            member_types=member_types,
+            snapshot=snapshot,
+            notes=notes,
+            read_values=_read,
+            type_catalog=self._annex_types,
+        )
         running_items = [t for t in tags if t.endswith(".Running") and prefix in t]
         if running_items:
             rv, _ = self.opc.read_values(server, [running_items[0]]).get(running_items[0], (False, "Good"))

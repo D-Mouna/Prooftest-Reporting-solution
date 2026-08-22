@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
+import threading
 from typing import Callable, Optional
 
 from layers.application.catalog_service import CatalogService
 from layers.application.errors import STEP_S7
 from layers.ports import AlarmPort, SilworxPort
+
+log = logging.getLogger(__name__)
 
 
 class SilworxConnectionService:
@@ -17,11 +21,13 @@ class SilworxConnectionService:
         alarms: AlarmPort,
         *,
         refresh_fn: Optional[Callable[[], None]] = None,
+        mark_refresh_busy: Optional[Callable[[], None]] = None,
     ) -> None:
         self.silworx = silworx
         self.catalog = catalog
         self.alarms = alarms
         self._refresh = refresh_fn or (lambda: self.catalog.refresh_catalog())
+        self._mark_refresh_busy = mark_refresh_busy
 
     def close_silworx_connection(self) -> dict:
         if not self.silworx.is_attached():
@@ -34,15 +40,12 @@ class SilworxConnectionService:
             except Exception:
                 pass
             self.alarms.raise_alarm(STEP_S7, "CloseSilworXconnection", str(exc))
-        try:
-            self._refresh()
-        except Exception as exc:
-            self.alarms.raise_alarm(STEP_S7, "CloseSilworXconnection", str(exc))
-        return {"silworx": "not connected", "status": "disconnected"}
+        self._start_refresh_async("CloseSilworXconnection")
+        return {"silworx": "not connected", "status": "disconnected", "refresh": "started"}
 
     def resume_silworx_connection(self) -> dict:
         try:
-            attached = self.silworx.attach()
+            self.silworx.attach()
         except Exception as exc:
             self.alarms.raise_alarm(STEP_S7, "ResumeSilworXconnection", str(exc))
             return {"silworx": "not connected", "status": "auth_or_cert_error"}
@@ -54,11 +57,8 @@ class SilworxConnectionService:
                 severity="Warning",
             )
             return {"silworx": "not connected", "status": "no_open_project"}
-        try:
-            self._refresh()
-        except Exception as exc:
-            self.alarms.raise_alarm(STEP_S7, "ResumeSilworXconnection", str(exc))
-        # Re-check after refresh — attach + catalog discovery may complete the session bind.
+        # Catalog refresh can take a long time (OPC browse). Do not block Connect HTTP.
+        self._start_refresh_async("ResumeSilworXconnection")
         if not self.silworx.is_attached():
             self.alarms.raise_alarm(
                 STEP_S7,
@@ -69,5 +69,27 @@ class SilworxConnectionService:
             return {
                 "silworx": "not connected",
                 "status": "attach_failed",
+                "refresh": "started",
             }
-        return {"silworx": "running", "status": "attached"}
+        return {"silworx": "running", "status": "attached", "refresh": "started"}
+
+    def _start_refresh_async(self, action: str) -> None:
+        if self._mark_refresh_busy is not None:
+            try:
+                self._mark_refresh_busy()
+            except Exception:
+                pass
+
+        def _run() -> None:
+            try:
+                self._refresh()
+            except Exception as exc:
+                log.warning("%s background refresh failed: %s", action, exc)
+                try:
+                    self.alarms.raise_alarm(STEP_S7, action, str(exc))
+                except Exception:
+                    pass
+
+        threading.Thread(
+            target=_run, daemon=True, name=f"silworx-{action.lower()}-refresh"
+        ).start()

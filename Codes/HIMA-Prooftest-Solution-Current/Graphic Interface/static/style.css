@@ -234,6 +234,21 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 320px;
+  min-width: 0;
+}
+
+.panel-devices {
+  /* Header/actions stay fixed; only the device table scrolls. */
+  max-height: min(78vh, 820px);
+}
+
+.panel-devices > .panel-head,
+.panel-devices > .device-list-actions,
+.panel-devices > .device-list-search-row,
+.panel-devices > .device-list-view-row,
+.panel-devices > .running-tests-zone,
+.panel-devices > .last-error-banner {
+  flex-shrink: 0;
 }
 
 .health-grid {
@@ -329,6 +344,80 @@ body {
   font-size: 0.8rem;
   color: var(--text-muted);
   line-height: 1.5;
+  min-height: 0;
+}
+
+.opc-detail-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.opc-detail-label {
+  font-weight: 700;
+  color: var(--hima-blue-dark);
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.opc-server-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 7.5rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border: 1px solid #e4e7ec;
+  border-radius: 4px;
+  background: #fafbfc;
+}
+
+.opc-server-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.35rem 0.55rem;
+  border-bottom: 1px solid #eef0f3;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.opc-server-list li:last-child {
+  border-bottom: none;
+}
+
+.opc-server-list .opc-server-name {
+  font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, monospace;
+  color: var(--hima-blue-dark);
+  word-break: break-all;
+  flex: 1;
+  min-width: 0;
+}
+
+.opc-server-list .opc-server-status {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.opc-server-list .opc-server-status.is-bad,
+.opc-server-list .opc-server-status.is-offline {
+  color: #a33;
+  font-weight: 600;
+}
+
+.opc-server-list .opc-server-status.is-ok {
+  color: #1a7a3c;
+}
+
+.opc-server-list .opc-server-empty {
+  justify-content: flex-start;
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 .opc-icon {
@@ -466,6 +555,33 @@ body {
 .scroll-panel {
   padding: 0.5rem 0.75rem 0.75rem;
   background: #f0f2f5;
+}
+
+/* Device table: vertical scroll for large catalogs (100+ rows). */
+.panel-devices > .scroll-panel {
+  flex: 1 1 auto;
+  min-height: 14rem;
+  max-height: none;
+  overflow-y: auto;
+  overflow-x: auto;
+  border-top: 1px solid #cfd6dd;
+}
+
+.panel-devices .device-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.panel-devices .device-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  box-shadow: 0 1px 0 #9eacb8;
+}
+
+.panel-reports > .scroll-panel {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .list-search-row {
@@ -999,6 +1115,24 @@ button:disabled {
 
 .btn-stop:hover:not(:disabled) {
   background: #b71c1c;
+}
+
+.btn-release {
+  background: #6a1b9a;
+  color: #fff;
+}
+
+.btn-release:hover:not(:disabled) {
+  background: #7b1fa2;
+}
+
+.btn-reintegrate {
+  background: #1565c0;
+  color: #fff;
+}
+
+.btn-reintegrate:hover:not(:disabled) {
+  background: #1976d2;
 }
 
 .btn-logo {

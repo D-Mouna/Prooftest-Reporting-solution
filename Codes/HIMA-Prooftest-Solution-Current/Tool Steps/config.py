@@ -71,6 +71,7 @@ def ensure_station_root(root: Path | None = None) -> Path:
         base / "HIMA Automated Prooftest Reports",
         base / "HIMA Automated Prooftest Reports" / "Report Templates",
         base / "Results Structures",
+        base / "Results Structures" / "Annexes",
     ):
         try:
             path.mkdir(parents=True, exist_ok=True)
@@ -183,15 +184,18 @@ def ensure_results_structures_catalogue(
         log.warning("Cannot create Results Structures catalogue %s: %s", dest, exc)
         return dest
     if src.is_dir() and src.resolve() != dest.resolve():
-        for csv_path in src.glob("*.csv"):
-            out = dest / csv_path.name
-            if out.exists():
-                continue
-            try:
-                shutil.copy2(csv_path, out)
-                log.info("Seeded Results Structure CSV -> %s", out)
-            except OSError as exc:
-                log.warning("Cannot seed %s: %s", out, exc)
+        for pattern in ("*.csv", "Annexes/*.csv"):
+            for csv_path in src.glob(pattern):
+                rel = csv_path.relative_to(src)
+                out = dest / rel
+                if out.exists():
+                    continue
+                try:
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(csv_path, out)
+                    log.info("Seeded Results Structure CSV -> %s", out)
+                except OSError as exc:
+                    log.warning("Cannot seed %s: %s", out, exc)
     return dest
 
 
@@ -257,12 +261,12 @@ class AppConfig:
     )
     case1_sync_poll_sec: float = 2.0
     opc_discover_all: bool = True
-    opc_server_filter: List[str] = field(default_factory=lambda: ["*X_OPC*", "*HIMA*"])
+    opc_server_filter: List[str] = field(default_factory=lambda: ["HIMA.*"])
     poll_interval_sec: float = 1.0
     device_list_poll_sec: float = 2.0
     template_poll_sec: float = 1.0
-    opc_default_branch: str = "OTS ProofTest"
-    opc_prooftest_branches: List[str] = field(default_factory=lambda: ["OTS ProofTest", "OPC ProofTest"])
+    opc_shape_gate_ratio: float = 0.5
+    opc_shape_gate_floor: int = 3
     report_format: str = "html"
     report_output: Path = Path()
     report_mirror: Path = Path()
@@ -375,15 +379,19 @@ class AppConfig:
 
         if parser.has_section("OPC"):
             cfg.opc_discover_all = parser.getboolean("OPC", "discover_all_servers", fallback=True)
-            filt = parser.get("OPC", "server_filter", fallback="*X_OPC*;*HIMA*")
+            # HIMA X-OPC registers as ProgID "HIMA.*" regardless of the product display name.
+            filt = parser.get("OPC", "server_filter", fallback="HIMA.*")
             cfg.opc_server_filter = [f.strip() for f in filt.split(";") if f.strip()]
             cfg.poll_interval_sec = parser.getfloat("OPC", "poll_interval_sec", fallback=1.0)
             cfg.device_list_poll_sec = parser.getfloat("OPC", "device_list_poll_sec", fallback=2.0)
             cfg.case1_sync_poll_sec = parser.getfloat("OPC", "case1_sync_poll_sec", fallback=2.0)
             cfg.template_poll_sec = parser.getfloat("OPC", "template_poll_sec", fallback=1.0)
-            cfg.opc_default_branch = parser.get("OPC", "default_branch", fallback=cfg.opc_default_branch)
-            branches = parser.get("OPC", "prooftest_branches", fallback="OTS ProofTest; OPC ProofTest")
-            cfg.opc_prooftest_branches = [b.strip() for b in branches.split(";") if b.strip()]
+            cfg.opc_shape_gate_ratio = parser.getfloat(
+                "OPC", "shape_gate_ratio", fallback=cfg.opc_shape_gate_ratio
+            )
+            cfg.opc_shape_gate_floor = parser.getint(
+                "OPC", "shape_gate_floor", fallback=cfg.opc_shape_gate_floor
+            )
 
         if parser.has_section("Reports"):
             cfg.report_format = parser.get("Reports", "format", fallback="html").lower()

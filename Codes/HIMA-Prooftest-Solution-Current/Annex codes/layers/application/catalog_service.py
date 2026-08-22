@@ -13,9 +13,6 @@ from layers.domain.opc_discover import type_members_from_structures
 from layers.domain.result_types import ResultType, ResultTypeCatalog
 from layers.ports import AlarmPort, ArchivePort, OpcPort, SilworxPort, StorePort
 
-OTS_BRANCH = "OTS ProofTest"
-OPC_BRANCH = "OPC ProofTest"
-
 log = logging.getLogger(__name__)
 
 
@@ -69,7 +66,7 @@ class CatalogService:
         self.types = catalog
 
     def bind_opc_paths(self, identities: list[SilworxIdentity]) -> list[OpcObservation]:
-        """Construct OTS ProofTest.{TAG}.Running then OPC ProofTest.{TAG}.Running — do not CSV-score."""
+        """Bind each SILworX TAG to ``…{TAG}.Running`` on any browsed HIMA.* server."""
         observations: list[OpcObservation] = []
         servers = self.opc.discover_servers()
         if not servers:
@@ -77,7 +74,7 @@ class CatalogService:
                 STEP_S4, "BindOpcPaths", "No X-OPC server", severity="Warning"
             )
             return observations
-        # Browse ProofTest branches into cache BEFORE path lookup (find_running_path
+        # Browse full OPC tree into cache BEFORE path lookup (find_running_path
         # only searches the tag cache — without this, API mode never binds OPC).
         try:
             if hasattr(self.opc, "list_tags_all_servers"):
@@ -243,6 +240,15 @@ class CatalogService:
                         device_tag=device.device_tag,
                     )
                     continue
+            # Never wipe the station list on a transient empty discovery (API/plugin down).
+            if not persisted and self.devices:
+                self.alarms.raise_alarm(
+                    STEP_S3,
+                    "RefreshCatalog",
+                    "Discovery returned no devices — keeping previous catalog",
+                    severity="Warning",
+                )
+                return list(self.devices)
             self.devices = sort_devices(persisted)
             self.reconcile_catalog([d.device_id.key() for d in self.devices])
             return self.devices

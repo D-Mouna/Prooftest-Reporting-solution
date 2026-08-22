@@ -263,11 +263,7 @@ def test_running_edge_pipeline(
 def test_live_opc_optional(db: Database, structures: Dict[str, ResultsStructure]) -> int:
     """Informational only — does not fail the gate when OPC is unavailable."""
     config = AppConfig.load(CONFIG_INI)
-    opc = OpcManager(
-        config.opc_server_filter,
-        config.opc_default_branch,
-        config.opc_prooftest_branches,
-    )
+    opc = OpcManager(config.opc_server_filter)
     try:
         servers = opc.discover_servers()
     except Exception as exc:

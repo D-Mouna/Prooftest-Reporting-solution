@@ -1,0 +1,7 @@
+Name,Data type,Initial Value,Sequence Number
+X-HART_E+H_PMx7xB_Parameters,,,
+X-HART_E+H_PMx7xB_Parameters.Character Test String,X-HART_ASCII_32,,0
+X-HART_E+H_PMx7xB_Parameters.Device Name,X-HART_ASCII_32,,2
+X-HART_E+H_PMx7xB_Parameters.Device Serial Number,X-HART_ASCII_32,,3
+X-HART_E+H_PMx7xB_Parameters.Device Tag,X-HART_ASCII_32,,1
+X-HART_E+H_PMx7xB_Parameters.Pressure Install Offset,X-HART_ASCII_32,,4

@@ -684,8 +684,9 @@ def resolve_gui_session_id(
     Return a validated GUI session token for ``api_port``.
 
     Prefers the cached token from the background plugin monitor (G-22). When the
-    monitor is enabled and running, waits briefly for the cache instead of opening
-    a second one-shot WebSocket registration on the same plugin port.
+    monitor is enabled and running, waits for the cache (and may request a fresh
+    plugin registration) instead of racing a second one-shot WebSocket on the
+    same plugin port.
     """
     plugin_port = plugin_port_for_api(api_port, config)
     tag = f"api={api_port} plugin={plugin_port}"
@@ -701,20 +702,43 @@ def resolve_gui_session_id(
         )
         if monitor_active:
             wait_for_session = getattr(plugin_monitor, "wait_for_session_id", None)
+            request_fresh = getattr(plugin_monitor, "request_fresh_session", None)
             if wait_for_session is not None:
                 log.info(
-                    "plugin monitor active — waiting for session cache %s (one-shot disabled)",
+                    "plugin monitor active — waiting for session cache %s",
                     tag,
                 )
                 session_id = wait_for_session(plugin_port, timeout_sec=timeout_sec)
                 if session_id:
                     log.info("plugin session from monitor cache %s", tag)
                     return session_id
+                if request_fresh is not None:
+                    log.info(
+                        "plugin monitor has no session yet %s — requesting fresh registration",
+                        tag,
+                    )
+                    request_fresh(plugin_port)
+                    session_id = wait_for_session(
+                        plugin_port, timeout_sec=max(timeout_sec, 15.0)
+                    )
+                    if session_id:
+                        log.info("plugin session from monitor cache %s", tag)
+                        return session_id
                 log.warning(
-                    "plugin monitor has no session yet %s — one-shot skipped",
+                    "plugin monitor still has no session %s — falling back to one-shot",
                     tag,
                 )
-                return None
+                # Fall through to one-shot only when the port is not connected;
+                # a second register on a live monitor socket usually fails.
+                connected = False
+                try:
+                    with plugin_monitor._lock:
+                        state = plugin_monitor._ports.get(plugin_port)
+                        connected = bool(state and state.connected)
+                except Exception:
+                    connected = False
+                if connected:
+                    return None
 
     log.info(
         "plugin one-shot register %s name=%s (closes after session acquired)",

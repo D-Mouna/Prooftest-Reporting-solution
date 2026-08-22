@@ -39,6 +39,11 @@ RESULTS_TYPE_FILES: Dict[str, str] = {
 
 _FILENAME_TO_TYPE: Dict[str, str] = {v.lower(): k for k, v in RESULTS_TYPE_FILES.items()}
 
+# Known SILworX CSV typos → canonical member short name (OPC folder spelling).
+_MEMBER_SHORT_ALIASES: Dict[str, str] = {
+    "Patameters Before Test": "Parameters Before Test",
+}
+
 
 @dataclass
 class ResultMember:
@@ -201,3 +206,85 @@ def member_to_column(name: str, type_name: str) -> str:
     if col[0].isdigit():
         col = f"M_{col}"
     return col
+
+
+def annexes_directory(results_structures: Path) -> Path:
+    """Folder holding nested SILworX type CSVs (ASCII arrays, Parameters structs)."""
+    return Path(results_structures) / "Annexes"
+
+
+def load_annex_types(annexes_dir: Path) -> Dict[str, ResultsStructure]:
+    """Load ``X-HART_ASCII_32``, ``X-HART_*_Parameters``, etc. from ``Annexes/``."""
+    structures: Dict[str, ResultsStructure] = {}
+    if not annexes_dir.is_dir():
+        return structures
+    for path in sorted(annexes_dir.glob("*.csv")):
+        try:
+            type_name = type_name_from_csv_path(path)
+            if type_name in structures:
+                continue
+            structures[type_name] = load_structure(path, type_name)
+        except Exception as exc:
+            log.warning("Skipping annex type CSV %s: %s", path, exc)
+    return structures
+
+
+_ASCII_LEN_RE = re.compile(r"^X-HART_ASCII_(\d+)$", re.IGNORECASE)
+
+
+def ascii_array_length(dtype: str, catalog: Optional[Dict[str, ResultsStructure]] = None) -> Optional[int]:
+    """
+    Character count for ``X-HART_ASCII_N`` (and ``BYTE`` arrays in annex CSVs).
+
+    Prefer the numeric suffix in the type name (``X-HART_ASCII_32`` → 32 cells).
+    """
+    dtype = (dtype or "").strip()
+    match = _ASCII_LEN_RE.match(dtype)
+    if match:
+        return int(match.group(1))
+    if catalog and dtype in catalog:
+        for member in catalog[dtype].members:
+            short = member.name.split(".")[-1]
+            if short.lower() == "array dimension":
+                # Annex CSV uses upper range 31 for a 32-byte string (indices 0..31).
+                return 32
+    return None
+
+
+def is_ascii_type(dtype: str) -> bool:
+    return bool(_ASCII_LEN_RE.match((dtype or "").strip()))
+
+
+def is_parameters_type(dtype: str, catalog: Optional[Dict[str, ResultsStructure]] = None) -> bool:
+    dtype = (dtype or "").strip()
+    if dtype.endswith("_Parameters"):
+        return True
+    return bool(catalog and dtype in catalog and "Parameters" in dtype)
+
+
+def member_dtype_map(structure: ResultsStructure) -> Dict[str, str]:
+    """Map member short name → SILworX data type."""
+    prefix = structure.type_name + "."
+    out: Dict[str, str] = {}
+    for member in structure.members:
+        short = member.name[len(prefix) :] if member.name.startswith(prefix) else member.name.split(".")[-1]
+        canonical = _MEMBER_SHORT_ALIASES.get(short, short)
+        out[short] = member.data_type
+        if canonical != short:
+            out[canonical] = member.data_type
+    return out
+
+
+def member_column_dtype_map(structure: ResultsStructure) -> Dict[str, str]:
+    """Map SQL snapshot column → SILworX ``Data type`` (includes annex nested types)."""
+    prefix = structure.type_name + "."
+    out: Dict[str, str] = {}
+    for member in structure.members:
+        short = member.name[len(prefix) :] if member.name.startswith(prefix) else member.name.split(".")[-1]
+        canonical = _MEMBER_SHORT_ALIASES.get(short, short)
+        col = member_to_column(f"{structure.type_name}.{canonical}", structure.type_name)
+        out[col] = member.data_type
+        # Legacy typo column from CSV member name (e.g. Patameters_Before_Test).
+        if canonical != short:
+            out[member_to_column(f"{structure.type_name}.{short}", structure.type_name)] = member.data_type
+    return out

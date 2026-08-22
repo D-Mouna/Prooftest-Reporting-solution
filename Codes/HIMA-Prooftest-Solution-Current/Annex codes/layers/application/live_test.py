@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Callable, Optional
 
 from layers.application.errors import STEP_S4, STEP_S5, STEP_S6
@@ -10,6 +12,10 @@ from layers.domain.running import RunningEdgeDetector
 from layers.ports import AlarmPort, OpcPort, ReportPort, StorePort
 
 SnapshotFn = Callable[[Device], tuple[dict, list[str]]]
+log = logging.getLogger(__name__)
+
+# How often to probe a Bad-quality .Running item so monitoring can resume.
+LIVE_RECHECK_SEC = 5.0
 
 
 class LiveTestService:
@@ -23,6 +29,7 @@ class LiveTestService:
         detector: Optional[RunningEdgeDetector] = None,
         snapshot_fn: Optional[SnapshotFn] = None,
         defer_complete: bool = False,
+        live_recheck_sec: float = LIVE_RECHECK_SEC,
     ) -> None:
         self.opc = opc
         self.store = store
@@ -31,10 +38,15 @@ class LiveTestService:
         self.detector = detector or RunningEdgeDetector()
         self.snapshot_fn = snapshot_fn
         self.defer_complete = defer_complete
+        self.live_recheck_sec = max(0.01, float(live_recheck_sec))
         self.completed: list[str] = []
         self.interrupted: list[str] = []
         self.queue: list[dict] = []
         self._sequence: dict[str, int] = {}
+        # Per Running item (not whole ProgID) — one Bad tag must not block others.
+        self._item_live_ok: dict[str, bool] = {}
+        self._item_recheck_at: dict[str, float] = {}
+        self._skip_logged: set[str] = set()
 
     @property
     def queue_depth(self) -> int:
@@ -60,6 +72,58 @@ class LiveTestService:
                     device_tag=device.device_tag,
                 )
 
+    def _server_live_ok(self, server: str) -> Optional[bool]:
+        fn = getattr(self.opc, "server_live_ok", None)
+        if not callable(fn):
+            return None
+        try:
+            return fn(server)
+        except Exception:
+            return None
+
+    def _mark_item_live(self, running_id: str, ok: bool, quality: str = "") -> None:
+        self._item_live_ok[running_id] = bool(ok)
+        if ok:
+            self._skip_logged.discard(running_id)
+
+    def _maybe_recheck_item(self, server: str, running_id: str) -> Optional[bool]:
+        """Return True when this item is Good again; False still Bad; None if wait window."""
+        now = time.monotonic()
+        if running_id not in self._item_recheck_at:
+            self._item_recheck_at[running_id] = now
+            return None
+        if now - self._item_recheck_at[running_id] < self.live_recheck_sec:
+            return None
+        self._item_recheck_at[running_id] = now
+        fn = getattr(self.opc, "recheck_server_live", None)
+        try:
+            if callable(fn):
+                ok = fn(server, running_id)
+            else:
+                running, quality = self.opc.read_running(server, running_id)
+                ok = running is not None and str(quality).lower() == "good"
+            self._mark_item_live(running_id, bool(ok))
+            if ok:
+                log.info(
+                    "OPC item live quality Good again — resuming .Running monitoring: %s",
+                    running_id,
+                )
+            return bool(ok)
+        except Exception as exc:
+            log.debug("OPC live recheck failed on %s: %s", running_id, exc)
+            self._mark_item_live(running_id, False)
+            return False
+
+    def _should_skip_live_poll(self, server: str, running_id: str) -> bool:
+        """Skip only when this item (or, if unknown, the server sample) is known Bad."""
+        item_ok = self._item_live_ok.get(running_id)
+        if item_ok is False:
+            return True
+        if item_ok is True:
+            return False
+        server_ok = self._server_live_ok(server) if server else None
+        return server_ok is False
+
     def _poll_one(self, device: Device) -> None:
         key = device.device_id.key()
         if self.detector.is_in_progress(key) and not device.present_on_opc:
@@ -72,6 +136,23 @@ class LiveTestService:
             if device.opc_item_prefix.endswith(".Running")
             else f"{device.opc_item_prefix}.Running"
         )
+        server = str(device.opc_server or "")
+        if self._should_skip_live_poll(server, running_id):
+            if self.detector.is_in_progress(key):
+                self.on_test_interrupted(device, "OPC live quality Bad — monitoring skipped")
+                return
+            if running_id not in self._skip_logged:
+                self._skip_logged.add(running_id)
+                log.info(
+                    "Skipping .Running monitoring for %s (live quality Bad); recheck every %.0fs",
+                    running_id,
+                    self.live_recheck_sec,
+                )
+            resumed = self._maybe_recheck_item(server, running_id)
+            if resumed is not True:
+                return
+            # Quality restored — fall through and read in this same poll cycle.
+
         try:
             running, quality = self.opc.read_running(device.opc_server, running_id)
         except Exception as exc:
@@ -83,6 +164,16 @@ class LiveTestService:
                 )
             return
         quality_good = str(quality).lower() == "good"
+        self._mark_item_live(running_id, quality_good, str(quality or ""))
+        mark = getattr(self.opc, "mark_live_quality", None)
+        if callable(mark) and server:
+            try:
+                mark(server, quality_good, str(quality or ""))
+            except Exception:
+                pass
+        if not quality_good and not self.detector.is_in_progress(key):
+            self._maybe_recheck_item(server, running_id)
+            return
         event = self.detector.observe(
             key,
             running,

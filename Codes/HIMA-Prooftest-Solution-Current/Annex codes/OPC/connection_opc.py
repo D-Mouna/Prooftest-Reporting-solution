@@ -121,16 +121,30 @@ def discover_opc_server(
     match: str = OPC_SERVER_ID,
 ) -> Optional[str]:
     """
-    Find the registered OPC server name containing X_OPC-25138 (or match).
-    Returns the exact string required by OpenOPC connect().
+    Find a registered HIMA X-OPC DA ProgID for OpenOPC connect().
+
+    After install, Windows always registers these as ``HIMA.…`` (display name
+    may differ). Prefer any ``HIMA.*`` ProgID; optional ``match`` narrows further.
     """
     OpenOPC = _import_openopc()
     opc = OpenOPC.client()
     try:
         browse_host = "localhost" if host.lower() in _local_hosts() else host
-        for name in opc.servers(browse_host):
-            if match.lower() in name.lower():
-                return name
+        hima_names = [
+            name for name in (opc.servers(browse_host) or [])
+            if str(name).upper().startswith("HIMA.")
+        ]
+        if match:
+            for name in hima_names:
+                if match.lower() in name.lower():
+                    return name
+        if hima_names:
+            return hima_names[0]
+        # Legacy fallback if a non-HIMA ProgID still contains the match token.
+        if match:
+            for name in opc.servers(browse_host) or []:
+                if match.lower() in str(name).lower():
+                    return name
     finally:
         try:
             opc.close()
@@ -301,10 +315,10 @@ class XOpcDaClient:
         self,
         filter_pattern: str = "*",
         *,
-        branch: Optional[str] = OPC_ITEM_BRANCH,
+        branch: Optional[str] = None,
     ) -> list[str]:
         """
-        Browse item IDs. When filter is '*' and branch is set, lists OTS MIRO_T2_1.
+        Browse item IDs. Full tree when ``branch`` is None; otherwise ``branch.*``.
         """
         if not self.connected:
             raise RuntimeError("Not connected")
@@ -326,7 +340,7 @@ class XOpcDaClient:
                 return []
             return list(tags)
 
-        tags = retry("OPC browse (list tags)", _do_list)
+        tags = retry("OPC browse (list tags)", _do_list, max_attempts=2, initial_delay=0.4)
         return sorted(set(tags))
 
     def read_tag(self, tag: str) -> TagReadResult:

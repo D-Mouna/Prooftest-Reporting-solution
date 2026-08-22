@@ -36,11 +36,7 @@ class ProoftestService:
         self.config = config
         self.alarms = AlarmManager()
         self.db = Database(config, self.alarms)
-        self.opc = OpcManager(
-            config.opc_server_filter,
-            config.opc_default_branch,
-            config.opc_prooftest_branches,
-        )
+        self.opc = OpcManager(config.opc_server_filter)
         self.structures: Dict[str, ResultsStructure] = {}
         self.monitor: Optional[ProoftestMonitor] = None
         self._stop = threading.Event()
@@ -49,6 +45,7 @@ class ProoftestService:
         self._last_template_sync = 0.0
         self._last_case1_sync_check = 0.0
         self._silworx_uninstall_released = False
+        self._silworx_integration_released = False
         self._opc_servers: list[str] = []
         self._case1_sync = Case1SyncTriggers(
             config,
@@ -62,6 +59,7 @@ class ProoftestService:
         self._loop_generation = 0
         self._on_shutdown: Optional[Callable[[str], None]] = None
         self._cached_device_counts: Tuple[int, int] = (0, 0)
+        self._cached_opc_device_counts: Dict[str, int] = {}
         self._cached_service_state: Dict[str, str] = {}
         self._health_cache: Dict[str, object] = {}
         self._health_cache_at: float = 0.0
@@ -89,8 +87,21 @@ class ProoftestService:
         return token != self._start_token
 
     def _publish_silworx_state(self) -> None:
+        from prooftest.step07_triggers import silworx_open_projects_state
+
+        self._case1_sync.refresh_open_sessions()
         for key, value in silworx_session_to_state(self._case1_sync.active_session).items():
             self.db.set_service_state(key, value)
+        for key, value in silworx_open_projects_state(self._case1_sync.open_sessions).items():
+            self.db.set_service_state(key, value)
+        attached = self._case1_sync._attached_project_names_by_api or {}
+        if attached:
+            self.db.set_service_state(
+                "silworx_attached_projects",
+                ";".join(
+                    f"{port}:{name}" for port, name in sorted(attached.items()) if name
+                ),
+            )
 
     def start(self) -> None:
         """Start or restart the Prooftest engine (OPC/API/poll). Web host stays up."""
@@ -262,9 +273,17 @@ class ProoftestService:
         if self._start_aborted(token):
             return False
         # Always start plugin monitor when possible — no-ops harmlessly if SILworX absent.
+        # Skip when operator released SILworX for uninstall (until Re-integrate).
         _stage("starting plugin monitor")
-        self._case1_sync.prepare_for_engine_start()
-        self._case1_sync.start_monitor()
+        if self.is_silworx_integration_released():
+            log.info("SILworX integration released — skipping plugin monitor on engine start")
+            try:
+                self._case1_sync._silworx_api_suspended = True
+            except Exception:
+                pass
+        else:
+            self._case1_sync.prepare_for_engine_start()
+            self._case1_sync.start_monitor()
         if self._start_aborted(token):
             try:
                 self._case1_sync.shutdown()
@@ -342,6 +361,127 @@ class ProoftestService:
             return True
         return False
 
+    def is_silworx_integration_released(self) -> bool:
+        """True when operator released SILworX for uninstall (until Re-integrate)."""
+        if getattr(self, "_silworx_integration_released", False):
+            return True
+        try:
+            state = self.db.get_service_state() or {}
+            mode = str(state.get("silworx_integration") or "").strip().lower()
+            if mode == "released":
+                self._silworx_integration_released = True
+                return True
+            # Legacy uninstall marker from G-11 auto-release.
+            if str(state.get("silworx_mode") or "") == "opc_after_uninstall" and mode != "integrated":
+                # Only treat as released if explicit integration key says so, or
+                # operator flag was set this process.
+                pass
+        except Exception:
+            pass
+        return False
+
+    def release_silworx_for_uninstall(self) -> Dict[str, object]:
+        """
+        Operator Release SILworX — drop API/plugin/c3 locks so SILworX can be uninstalled.
+
+        Report tool keeps running on OPC-only until Re-integrate SILworX.
+        """
+        log.warning("Operator Release SILworX — dropping API/plugin/c3 for uninstall")
+        self._silworx_integration_released = True
+        self._silworx_uninstall_released = True
+        try:
+            self._case1_sync.detach_tool_clients()
+        except Exception as exc:
+            log.warning("Detach during Release SILworX failed: %s", exc)
+        try:
+            self._case1_sync.shutdown()
+        except Exception as exc:
+            log.warning("SILworX shutdown during Release failed: %s", exc)
+        killed = 0
+        try:
+            from prooftest.annex_silworx_cleanup import kill_leftover_c3_after_close, list_c3_processes
+
+            if list_c3_processes():
+                cleanup = kill_leftover_c3_after_close(self.config, force=True)
+                killed = len(getattr(cleanup, "killed", []) or [])
+        except Exception as exc:
+            log.warning("c3.exe cleanup during Release SILworX failed: %s", exc)
+        try:
+            self.db.set_service_state("silworx_integration", "released")
+            self.db.set_service_state("silworx_mode", "opc_after_uninstall")
+            self.db.set_service_state("device_list_source", "opc_fallback")
+            self.db.set_service_state("silworx_api_connected", "0")
+            self.db.set_service_state("silworx_cleanup_killed", str(killed))
+            self.db.set_service_state(
+                "silworx_released_at",
+                time.strftime("%Y-%m-%d %H:%M:%S"),
+            )
+        except Exception:
+            pass
+        try:
+            self.alarms.raise_alarm(
+                "G-11",
+                "SILworX released for uninstall — tool continues on OPC only",
+                cause="API/plugin detached; leftover c3.exe cleared when present",
+                severity="Warning",
+                show_popup=False,
+            )
+        except Exception:
+            pass
+        try:
+            self.refresh(manual=True)
+        except Exception as exc:
+            log.warning("OPC refresh after Release SILworX failed: %s", exc)
+        return {
+            "status": "released",
+            "silworx_integration": "released",
+            "c3_killed": killed,
+            "engine_running": bool(self.engine_running),
+        }
+
+    def reintegrate_silworx(self) -> Dict[str, object]:
+        """Operator Re-integrate SILworX after reinstall — allow API/plugin again."""
+        log.info("Operator Re-integrate SILworX — restoring API/plugin integration")
+        self._silworx_integration_released = False
+        self._silworx_uninstall_released = False
+        try:
+            self.db.set_service_state("silworx_integration", "integrated")
+            self.db.set_service_state("silworx_mode", "")
+            self.db.set_service_state(
+                "silworx_reintegrated_at",
+                time.strftime("%Y-%m-%d %H:%M:%S"),
+            )
+        except Exception:
+            pass
+        try:
+            self._case1_sync.prepare_for_engine_start()
+            if self.engine_running:
+                self._case1_sync.start_monitor()
+        except Exception as exc:
+            log.warning("Re-integrate SILworX monitor start failed: %s", exc)
+            return {
+                "status": "reintegrate_partial",
+                "silworx_integration": "integrated",
+                "error": str(exc),
+                "engine_running": bool(self.engine_running),
+            }
+        # Attach if a project is already open (same as Connect).
+        result: Dict[str, object] = {
+            "status": "integrated",
+            "silworx_integration": "integrated",
+            "engine_running": bool(self.engine_running),
+        }
+        if self.engine_running and self.app is not None:
+            try:
+                attach = self.app.resume_silworx_connection()
+                result.update(attach)
+                result["status"] = "integrated"
+                result["silworx_integration"] = "integrated"
+            except Exception as exc:
+                log.warning("Re-integrate attach attempt: %s", exc)
+                result["attach_error"] = str(exc)
+        return result
+
     def release_silworx_engines_keep_running(self) -> None:
         """
         G-11 — SILworX removed / uninstall in progress:
@@ -351,57 +491,8 @@ class ProoftestService:
         - Keep this Report Solution process running
         - Continue device-list updates via OPC scan (same unified path as when API is down)
         """
-        log.warning(
-            "SILworX no longer installed — releasing SILworX engines; "
-            "Report Solution stays running and uses OPC for device list (G-11)"
-        )
-
-        try:
-            self._case1_sync.shutdown()
-        except Exception as exc:
-            log.warning("SILworX API/plugin release during uninstall failed: %s", exc)
-
-        try:
-            from prooftest.annex_silworx_cleanup import kill_leftover_c3_after_close, list_c3_processes
-
-            if list_c3_processes():
-                cleanup = kill_leftover_c3_after_close(self.config, force=True)
-                try:
-                    self.db.set_service_state(
-                        "silworx_cleanup_killed",
-                        str(len(cleanup.killed)),
-                    )
-                except Exception:
-                    pass
-        except Exception as exc:
-            log.warning("c3.exe cleanup during uninstall failed: %s", exc)
-
-        try:
-            self.db.set_service_state("device_list_source", "opc_fallback")
-            self.db.set_service_state("silworx_api_connected", "0")
-            self.db.set_service_state("silworx_mode", "opc_after_uninstall")
-            self.db.set_service_state(
-                "silworx_released_at",
-                time.strftime("%Y-%m-%d %H:%M:%S"),
-            )
-        except Exception:
-            pass
-
-        try:
-            self.alarms.raise_alarm(
-                "G-11",
-                "SILworX uninstalled/removed — continuing with OPC device list",
-                cause="Released SILworX API/plugin/c3 locks; Report Solution continues running",
-                severity="Warning",
-                show_popup=False,
-            )
-        except Exception:
-            pass
-
-        try:
-            self.refresh(manual=True)
-        except Exception as exc:
-            log.warning("OPC refresh after SILworX release failed: %s", exc)
+        # Same durable release state as the operator button.
+        self.release_silworx_for_uninstall()
 
     # Backward-compatible name used by older call sites / docs.
     switch_to_opc_after_silworx_uninstall = release_silworx_engines_keep_running
@@ -598,10 +689,27 @@ class ProoftestService:
         except Exception:
             return 0, 0
 
+    def _opc_device_counts_by_server(self) -> Dict[str, int]:
+        """Active catalog devices grouped by OPC ProgID (for health UI)."""
+        counts: Dict[str, int] = {}
+        try:
+            for row in self.db.list_active_devices() or []:
+                srv = str((row or {}).get("opc_server") or "").strip()
+                if not srv:
+                    continue
+                counts[srv] = counts.get(srv, 0) + 1
+        except Exception:
+            return {}
+        return counts
+
     def _sync_health_caches_from_db(self) -> None:
         """Keep UI health fresh even when catalog refresh is slow/stuck."""
         try:
             self._cached_device_counts = self._device_counts()
+        except Exception:
+            pass
+        try:
+            self._cached_opc_device_counts = self._opc_device_counts_by_server()
         except Exception:
             pass
         try:
@@ -626,7 +734,14 @@ class ProoftestService:
             "device_list_source": service_state.get("device_list_source", ""),
             "database": db_label,
             "opc_servers": [
-                {"name": name, "connected": True, "tags": 0} for name in opc_names
+                {
+                    "name": name,
+                    "connected": True,
+                    "devices": int((getattr(self, "_cached_opc_device_counts", {}) or {}).get(name, 0)),
+                    "tags": 0,
+                    "browse_ok": True,
+                }
+                for name in opc_names
             ],
             "active_devices": all_count,
             "opc_devices": opc_count,
@@ -671,6 +786,9 @@ class ProoftestService:
             payload["opc_count"] = len(self._opc_servers)
         payload["device_count"] = int(payload.get("active_devices") or 0)
         payload["silworx_status"] = self._silworx_badge() if engine != "stopped" else "not connected"
+        payload["silworx_integration"] = (
+            "released" if self.is_silworx_integration_released() else "integrated"
+        )
         payload["web_auth_required"] = bool(self.config.web_auth_enabled)
         payload["auth_bind_warning"] = bool(getattr(self.config, "auth_bind_warning", False))
         payload["web_host"] = str(self.config.web_host)
@@ -759,6 +877,19 @@ class ProoftestService:
                     for n in self._opc_servers
                 ]
             silworx = silworx_session_to_state(self._case1_sync.active_session)
+            try:
+                self._case1_sync.refresh_open_sessions()
+            except Exception:
+                pass
+            open_projects = [
+                {
+                    "session_id": s.session_id,
+                    "project_name": s.project_name,
+                    "project_file": s.project_file,
+                    "src_path": str(s.src_path),
+                }
+                for s in (self._case1_sync.open_sessions or [])
+            ]
             device_list_source = service_state.get("device_list_source", "")
             api_project = self._case1_sync.api_connected_project_name(device_list_source)
             plugin_name = self._case1_sync.registered_plugin_session_name()
@@ -766,17 +897,40 @@ class ProoftestService:
                 {"api_port": inst.api_port, "plugin_port": inst.plugin_port, "label": inst.label}
                 for inst in self._case1_sync._available_instances
             ]
+            attached_map = {
+                str(port): name
+                for port, name in (self._case1_sync._attached_project_names_by_api or {}).items()
+                if name
+            }
+            device_by_server = dict(getattr(self, "_cached_opc_device_counts", {}) or {})
+            try:
+                # Prefer a fresh count so health matches the catalog after refresh.
+                device_by_server = self._opc_device_counts_by_server() or device_by_server
+                self._cached_opc_device_counts = dict(device_by_server)
+            except Exception:
+                pass
             payload = {
                 "deployment_case": self.config.deployment_case,
                 "device_list_source": device_list_source,
                 "database": db_label,
                 "opc_servers": [
-                    {"name": s.prog_id, "connected": s.connected, "tags": s.tag_count} for s in servers
+                    {
+                        "name": s.prog_id,
+                        "connected": s.connected,
+                        "devices": int(device_by_server.get(s.prog_id, 0)),
+                        "tags": s.tag_count,
+                        "browse_ok": bool(getattr(s, "browse_ok", True)),
+                        "live_ok": getattr(s, "live_ok", None),
+                        "live_quality": getattr(s, "live_quality", "") or "",
+                    }
+                    for s in servers
                 ],
                 "active_devices": all_count,
                 "opc_devices": opc_count,
                 "queue_depth": self.monitor.queue_depth if self.monitor else 0,
                 "silworx": silworx,
+                "open_projects": open_projects,
+                "attached_projects": attached_map,
                 "api_session": {"project_name": api_project},
                 "plugin_session": {"name": plugin_name, "registered": bool(plugin_name)},
                 "silworx_api_instances": api_instances,
@@ -788,6 +942,9 @@ class ProoftestService:
                 "web_auth_required": self.config.web_auth_enabled,
             }
             payload = self._decorate_health(payload, "running")
+            payload["silworx_integration"] = (
+                "released" if self.is_silworx_integration_released() else "integrated"
+            )
             self._health_cache = dict(payload)
             self._health_cache_at = time.monotonic()
             return payload

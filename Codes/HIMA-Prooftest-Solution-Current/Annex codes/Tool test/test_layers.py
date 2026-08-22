@@ -90,8 +90,93 @@ def test_05_opc_only_folder() -> None:
     result = CatalogMerger().merge([], [_opc("200-PZT-002")])
     assert len(result.devices) == 1
     assert result.devices[0].device_tag == "200-PZT-002"
-    assert result.devices[0].present_on_opc is True
     assert result.devices[0].project == ""
+    assert result.devices[0].present_on_opc is True
+
+
+def test_05b_retain_project_devices_when_silworx_closed() -> None:
+    """Project-discovered devices stay in the catalog after SILworX closes."""
+    prior = Device(
+        DeviceId("ProjA", "Cfg", "Res", "100-FZT-001"),
+        TYPE,
+        "HIMA.X-OPC.1",
+        "HART_FDB_Test.100-FZT-001",
+        True,
+        source_kind="project",
+    )
+    result = CatalogMerger().merge(
+        [],
+        [_opc("100-FZT-001", prefix="HART_FDB_Test.100-FZT-001")],
+        existing={prior.device_id.key(): prior},
+    )
+    assert len(result.devices) == 1
+    d = result.devices[0]
+    assert d.project == "ProjA"
+    assert d.device_tag == "100-FZT-001"
+    assert d.present_on_opc is True
+    assert d.opc_item_prefix.endswith("100-FZT-001")
+
+
+def test_05c_retain_project_device_without_opc_when_api_down() -> None:
+    prior = Device(
+        DeviceId("ProjA", "Cfg", "Res", "ONLY-API"),
+        TYPE,
+        source_kind="project",
+    )
+    result = CatalogMerger().merge([], [], existing={prior.device_id.key(): prior})
+    assert len(result.devices) == 1
+    assert result.devices[0].project == "ProjA"
+    assert result.devices[0].present_on_opc is False
+
+
+def test_05c2_slash_tag_binds_underscore_opc() -> None:
+    """SILworX TAG with '/' must bind to HIMA OPC leaf that uses '_'."""
+    result = CatalogMerger().merge(
+        [_ident("HART FS", "_FIT-Promass 300/500")],
+        [
+            _opc(
+                "_FIT-Promass 300_500",
+                server="HIMA.X-OPC_10406_ProofTes-DA.1",
+                prefix="HART_FDB_Test._FIT-Promass 300_500",
+            )
+        ],
+    )
+    assert len(result.devices) == 1
+    d = result.devices[0]
+    assert d.device_tag == "_FIT-Promass 300/500"
+    assert d.project == "HART FS"
+    assert d.present_on_opc is True
+    assert d.opc_item_prefix == "HART_FDB_Test._FIT-Promass 300_500"
+
+
+def test_05d_skip_running_poll_when_opc_live_bad() -> None:
+    opc = FakeOpc(running={"OTS ProofTest.A.Running": (True, "Bad")})
+    opc.mark_live_quality("S", False, "Bad")
+    live = LiveTestService(opc, FakeStore(), FakeReports(), RecordingAlarmPort(), live_recheck_sec=3600)
+    device = Device(DeviceId("P", "C", "R", "A"), TYPE, "S", "OTS ProofTest.A", True)
+    live._item_live_ok["OTS ProofTest.A.Running"] = False
+    live._poll_one(device)
+    live._poll_one(device)
+    assert opc.read_calls == [], "Bad-quality OPC must not poll .Running every cycle"
+    assert not live.detector.is_in_progress(device.device_id.key())
+
+
+def test_05e_resume_running_poll_after_live_recheck_good() -> None:
+    import time as _time
+
+    opc = FakeOpc(
+        running_sequence={
+            "OTS ProofTest.A.Running": [(False, "Good"), (True, "Good")],
+        }
+    )
+    live = LiveTestService(opc, FakeStore(), FakeReports(), RecordingAlarmPort(), live_recheck_sec=0.01)
+    device = Device(DeviceId("P", "C", "R", "A"), TYPE, "S", "OTS ProofTest.A", True)
+    rid = "OTS ProofTest.A.Running"
+    live._item_live_ok[rid] = False
+    live._item_recheck_at[rid] = _time.monotonic() - 1.0
+    live._poll_one(device)  # recheck → Good (False), fall through → True → started
+    assert live._item_live_ok.get(rid) is True
+    assert live.detector.is_in_progress(device.device_id.key())
 
 
 def test_06_false_true_started_no_snapshot() -> None:
@@ -213,19 +298,16 @@ def test_11_load_result_types(tmp_path: Path) -> None:
     assert not catalog.matches_global("Unknown_Global")
 
 
-def test_12_bind_opc_paths_ots_then_opc() -> None:
+def test_12_bind_opc_paths_by_tag() -> None:
     opc = FakeOpc(
         servers=["HIMA.X-OPC.1"],
-        paths={("HIMA.X-OPC.1", "OTS ProofTest.100-FZT-001.Running"): "OTS ProofTest.100-FZT-001.Running"},
+        paths={("HIMA.X-OPC.1", "HART_FDB_Test.100-FZT-001.Running"): "HART_FDB_Test.100-FZT-001.Running"},
     )
     svc = CatalogService(FakeStore(), opc, FakeSilworx(), RecordingAlarmPort())
     obs = svc.bind_opc_paths([_ident("ProjA", "100-FZT-001")])
-    assert obs and obs[0].opc_item_prefix == "OTS ProofTest.100-FZT-001"
+    assert obs and obs[0].opc_item_prefix == "HART_FDB_Test.100-FZT-001"
     items = [item for _srv, item in opc.find_calls]
-    assert items[0].startswith("OTS ProofTest.")
-    assert any(i.startswith("OPC ProofTest.") for i in items) or items[0].startswith("OTS ProofTest.")
-    # First attempt is OTS
-    assert opc.find_calls[0][1] == "OTS ProofTest.100-FZT-001.Running"
+    assert items[0] == "HART_FDB_Test.100-FZT-001.Running"
 
 
 def test_13_reconcile_marks_inactive_keeps_snapshots() -> None:
@@ -405,8 +487,10 @@ def test_t01_someflag_running_rejected() -> None:
 
 
 def test_t02_real_tag_shape_accepted() -> None:
-    from layers.domain.opc_discover import discover_shaped_from_tag_lists
+    from layers.domain.opc_discover import discover_shaped_from_tag_lists, shape_gate_threshold
 
+    # Tiny fixture types: half of 4 members with floor 3 → gate 3.
+    assert shape_gate_threshold(_FTL_MEMBERS["FTL_Results"]) == 3
     tags = [
         "OTS ProofTest.100-FZT-001.Running",
         "OTS ProofTest.100-FZT-001.TestResult",
@@ -417,6 +501,38 @@ def test_t02_real_tag_shape_accepted() -> None:
     assert len(shaped.observations) == 1
     assert shaped.observations[0].device_tag == "100-FZT-001"
     assert shaped.observations[0].results_type == "FTL_Results"
+
+
+def test_t02c_user_named_resource_accepted() -> None:
+    """OPC parent folders are user-defined (e.g. HART_FDB_Test), not fixed ProofTest names."""
+    from layers.domain.opc_discover import discover_shaped_from_tag_lists
+
+    tags = [
+        "HART_FDB_Test.100-FZT-001.Running",
+        "HART_FDB_Test.100-FZT-001.TestResult",
+        "HART_FDB_Test.100-FZT-001.SensorOK",
+        "HART_FDB_Test.100-FZT-001.Extra",
+    ]
+    shaped = discover_shaped_from_tag_lists({"S1": tags}, _FTL_MEMBERS)
+    assert len(shaped.observations) == 1
+    assert shaped.observations[0].device_tag == "100-FZT-001"
+    assert shaped.observations[0].opc_item_prefix == "HART_FDB_Test.100-FZT-001"
+
+
+def test_t02b_partial_overlap_rejected_against_large_type() -> None:
+    """Similar-looking blocks must not pass a half-size Results gate."""
+    from layers.domain.opc_discover import discover_shaped_from_tag_lists, shape_gate_threshold
+
+    big = {"Running", "A", "B", "C", "D", "E", "F", "G", "H", "I"}
+    assert shape_gate_threshold(big) == 5  # max(3, ceil(10*0.5))
+    tags = [
+        "OTS ProofTest.LOOKALIKE.Running",
+        "OTS ProofTest.LOOKALIKE.A",
+        "OTS ProofTest.LOOKALIKE.B",
+        "OTS ProofTest.LOOKALIKE.C",
+    ]
+    shaped = discover_shaped_from_tag_lists({"S1": tags}, {"Big_Results": big})
+    assert shaped.observations == []
 
 
 def test_t03_silworx_type_wins_over_csv() -> None:
@@ -492,8 +608,13 @@ def test_t05_opc_only_keeps_last_sql_type() -> None:
 def test_t06_tag_with_dots_rejected() -> None:
     from layers.domain.opc_discover import parse_shaped_running_item
 
-    assert parse_shaped_running_item("OTS ProofTest.foo.bar.Running") is None
+    assert parse_shaped_running_item("SomeFlag.Running") is None
     assert parse_shaped_running_item("OTS ProofTest.foo.Running") is not None
+    assert parse_shaped_running_item("HART_FDB_Test.100-FZT-001.Running")[1] == "100-FZT-001"
+    assert parse_shaped_running_item("OTS ProofTest.Global Vars.foo.Running")[1] == "foo"
+    assert parse_shaped_running_item("OPC ProofTest.Global Vars.100-TT-1.Running")[1] == "100-TT-1"
+    # Nested member path: last segment is treated as TAG (shape gate filters junk).
+    assert parse_shaped_running_item("OTS ProofTest.foo.bar.Running")[1] == "bar"
 
 
 def test_t07_same_tag_two_projects_two_ids() -> None:

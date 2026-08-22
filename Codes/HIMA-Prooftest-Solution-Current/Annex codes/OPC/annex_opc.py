@@ -18,20 +18,30 @@ log = logging.getLogger(__name__)
 # sibling Codes\Report-Tool (path confusion / out-of-tree code risk).
 _OPC_CLIENT_PATH = Path(__file__).resolve().parent / "connection_opc.py"
 
-# RPC_E_WRONG_THREAD, RPC_E_DISCONNECTED, CO_E_OBJNOTCONNECTED
+# RPC_E_WRONG_THREAD, RPC_E_DISCONNECTED, CO_E_OBJNOTCONNECTED, E_FAIL (browse)
 _COM_REUSE_MARKERS = (
     "addgroup",
     "-2147417842",
     "-2147417848",
     "-2147220995",
+    "-2147467259",
     "wrong thread",
     "not connected",
+    "opcerror",
 )
 
 
 def _is_com_reuse_error(exc: BaseException) -> bool:
     text = str(exc).lower()
     return any(marker in text for marker in _COM_REUSE_MARKERS)
+
+
+def _is_browse_retryable(exc: BaseException) -> bool:
+    """Transient OpenOPC/COM browse failures worth one reconnect + retry."""
+    if _is_com_reuse_error(exc):
+        return True
+    text = str(exc).lower()
+    return "list:" in text or "browse" in text
 
 
 def _load_connection_opc():
@@ -59,6 +69,10 @@ class OpcServerInfo:
     prog_id: str
     connected: bool = False
     tag_count: int = 0
+    browse_ok: bool = True
+    # None = not sampled; True/False = last sample read quality Good / not Good.
+    live_ok: Optional[bool] = None
+    live_quality: str = ""
 
 
 @dataclass
@@ -72,23 +86,33 @@ class DeviceOpcBinding:
 class OpcManager:
     """Thread-safe OPC access — one client per X-OPC server."""
 
-    def __init__(
-        self,
-        server_filters: Sequence[str],
-        default_branch: str,
-        prooftest_branches: Optional[Sequence[str]] = None,
-    ) -> None:
+    def __init__(self, server_filters: Sequence[str]) -> None:
         self.server_filters = list(server_filters)
-        self.default_branch = default_branch
-        self.prooftest_branches = list(prooftest_branches or ["OTS ProofTest", "OPC ProofTest"])
         self._lock = threading.Lock()
         self._thread_clients: Dict[int, Dict[str, Any]] = {}
         self._tags_cache: Dict[str, List[str]] = {}
         self._last_servers: List[str] = []
+        self._last_tag_counts: Dict[str, int] = {}
+        self._browse_failed: Dict[str, bool] = {}
+        self._live_ok: Dict[str, bool] = {}
+        self._live_quality: Dict[str, str] = {}
 
     def _match_server(self, name: str) -> bool:
+        """
+        Keep HIMA X-OPC DA ProgIDs.
+
+        After install, Windows always registers these as ``HIMA.…`` (e.g.
+        ``HIMA.X_OTS-25100-DA.1``). The SILworX/project display name is unrelated.
+        Configured ``server_filter`` patterns may add extra matches; ``HIMA.*`` is
+        always accepted.
+        """
+        prog_id = (name or "").strip()
+        if not prog_id:
+            return False
+        if prog_id.upper().startswith("HIMA."):
+            return True
         for pattern in self.server_filters:
-            if fnmatch.fnmatch(name.lower(), pattern.lower()):
+            if fnmatch.fnmatch(prog_id.lower(), pattern.lower()):
                 return True
         return False
 
@@ -123,14 +147,10 @@ class OpcManager:
         return self._last_servers
 
     def device_prefix_candidates(self, device_tag: str, item_prefix: Optional[str] = None) -> List[str]:
-        """Build OPC item prefixes for a device TAG (e.g. 100-FZT-001)."""
+        """Build OPC item prefixes for a device TAG (known bound prefix first)."""
         prefixes: List[str] = []
         if item_prefix:
             prefixes.append(item_prefix)
-        for branch in self.prooftest_branches:
-            prefixes.append(f"{branch}.{device_tag}")
-        if self.default_branch:
-            prefixes.append(f"{self.default_branch}.{device_tag}")
         prefixes.append(device_tag)
         seen: set[str] = set()
         unique: List[str] = []
@@ -176,43 +196,185 @@ class OpcManager:
         except Exception:
             pass
 
-    def _browse_branches(self) -> List[Optional[str]]:
-        order: List[Optional[str]] = list(self.prooftest_branches)
-        if self.default_branch and self.default_branch not in order:
-            order.append(self.default_branch)
-        return order
-
     def list_all_tags(self, server_name: str, branch: Optional[str] = None) -> List[str]:
-        """Browse Prooftest branches on one server (e.g. OTS ProofTest.*)."""
-        cache_key = f"{server_name}|{branch or '|'.join(self.prooftest_branches)}"
+        """
+        Browse OPC item IDs on one server.
+
+        Parent folder names are user-defined SILworX resources. Browse the full
+        tree (optional ``branch`` limits to one folder when a caller already
+        knows a path).
+        """
+        cache_key = f"{server_name}|{branch or 'ALL'}"
         with self._lock:
             if cache_key in self._tags_cache:
                 return self._tags_cache[cache_key]
-        client = self._get_client(server_name)
-        merged: set[str] = set()
-        branches = [branch] if branch else self._browse_branches()
-        for browse_branch in branches:
+
+        result: List[str] = []
+        last_exc: Optional[BaseException] = None
+        for attempt in range(2):
+            merged: set[str] = set()
+            browse_errors = 0
             try:
-                tags = client.list_tags("*", branch=browse_branch)
+                client = self._get_client(server_name)
+                tags = client.list_tags("*", branch=branch)
                 if tags:
                     merged.update(tags)
-                    log.debug("Server %s branch %r: %d tags", server_name, browse_branch, len(tags))
             except Exception as exc:
-                log.debug("Browse %r on %s failed: %s", browse_branch, server_name, exc)
-        result = sorted(merged)
+                last_exc = exc
+                log.warning(
+                    "Browse %r on %s failed (attempt %d/2): %s",
+                    branch,
+                    server_name,
+                    attempt + 1,
+                    exc,
+                )
+                browse_errors += 1
+                if branch is not None:
+                    try:
+                        client = self._get_client(server_name)
+                        flat = client.list_tags("*", branch=None)
+                        if flat:
+                            merged.update(flat)
+                            browse_errors = 0
+                            last_exc = None
+                    except Exception as flat_exc:
+                        last_exc = flat_exc
+                        log.warning("Full browse on %s failed: %s", server_name, flat_exc)
+                        browse_errors += 1
+            result = sorted(merged)
+            if result:
+                break
+            if attempt == 0 and last_exc is not None and _is_browse_retryable(last_exc):
+                self._drop_thread_client(server_name)
+                continue
+            break
+
         with self._lock:
-            self._tags_cache[cache_key] = result
+            if result:
+                self._tags_cache[cache_key] = result
+                self._last_tag_counts[server_name] = len(result)
+                self._browse_failed[server_name] = False
+            else:
+                self._browse_failed[server_name] = True
+                self._last_tag_counts[server_name] = 0
+                self._live_ok.pop(server_name, None)
+                self._live_quality.pop(server_name, None)
+        if result:
+            self._sample_live_quality(server_name, result)
         return result
+
+    def _sample_live_quality(self, server_name: str, tags: Sequence[str]) -> None:
+        """One cheap Running read — distinguishes address-space browse from live I/O."""
+        running = next((t for t in tags if str(t).endswith(".Running")), None)
+        if not running:
+            with self._lock:
+                self._live_ok.pop(server_name, None)
+                self._live_quality[server_name] = ""
+            return
+        try:
+            client = self._get_client(server_name)
+            sample = client.read_tag(running)
+            quality = str(getattr(sample, "quality", "") or "")
+            ok = quality.lower() == "good"
+            with self._lock:
+                self._live_ok[server_name] = ok
+                self._live_quality[server_name] = quality or ("Good" if ok else "Bad")
+            if not ok:
+                log.warning(
+                    "OPC %s browsed OK (%d tags) but live quality=%s on %s "
+                    "(address space present; controller/X-OPC runtime link down)",
+                    server_name,
+                    len(tags),
+                    quality or "Bad",
+                    running,
+                )
+        except Exception as exc:
+            with self._lock:
+                self._live_ok[server_name] = False
+                self._live_quality[server_name] = f"read-error:{exc}"
+            log.warning("OPC %s live sample read failed: %s", server_name, exc)
+
+    def server_live_ok(self, server_name: str) -> Optional[bool]:
+        """True/False when sampled; None if this ProgID was never live-sampled."""
+        with self._lock:
+            if server_name not in self._live_ok:
+                return None
+            return bool(self._live_ok[server_name])
+
+    def mark_live_quality(self, server_name: str, ok: bool, quality: str = "") -> None:
+        with self._lock:
+            self._live_ok[server_name] = bool(ok)
+            self._live_quality[server_name] = quality or ("Good" if ok else "Bad")
+
+    def recheck_server_live(
+        self, server_name: str, running_item: Optional[str] = None
+    ) -> Optional[bool]:
+        """Re-read one Running item so monitoring can resume after Bad quality."""
+        item = str(running_item or "").strip()
+        if not item:
+            with self._lock:
+                for key, tags in self._tags_cache.items():
+                    if key.split("|", 1)[0] != server_name:
+                        continue
+                    item = next((t for t in tags if str(t).endswith(".Running")), "")
+                    if item:
+                        break
+        if not item:
+            return self.server_live_ok(server_name)
+        last_exc: Optional[BaseException] = None
+        for attempt in range(2):
+            try:
+                if attempt:
+                    self._drop_thread_client(server_name)
+                client = self._get_client(server_name)
+                sample = client.read_tag(item)
+                quality = str(getattr(sample, "quality", "") or "")
+                ok = quality.lower() == "good"
+                self.mark_live_quality(server_name, ok, quality)
+                if ok:
+                    log.info("OPC %s live quality restored (Good) on %s", server_name, item)
+                return ok
+            except Exception as exc:
+                last_exc = exc
+                if attempt == 0 and _is_browse_retryable(exc):
+                    continue
+                break
+        self.mark_live_quality(
+            server_name, False, f"read-error:{last_exc}" if last_exc else "Bad"
+        )
+        return False
 
     def list_tags_all_servers(self, servers: Optional[Sequence[str]] = None) -> Dict[str, List[str]]:
         server_list = list(servers) if servers else self.discover_servers()
+        # Browse productive servers first; defer ProgIDs that previously failed
+        # so RefreshCatalog is not blocked for minutes on dead X-OPC instances.
+        with self._lock:
+            failed = {name for name, bad in self._browse_failed.items() if bad}
+            counts = dict(self._last_tag_counts)
+
+        def _rank(name: str) -> tuple:
+            if counts.get(name, 0) > 0:
+                return (0, -counts.get(name, 0), name)
+            if name in failed:
+                return (2, 0, name)
+            return (1, 0, name)
+
+        ordered = sorted(server_list, key=_rank)
         result: Dict[str, List[str]] = {}
-        for server in server_list:
+        for server in ordered:
+            known_bad = server in failed and counts.get(server, 0) <= 0
             try:
-                result[server] = self.list_all_tags(server)
+                tags = self.list_all_tags(server)
+                result[server] = tags
             except Exception as exc:
                 log.warning("Browse failed on %s: %s", server, exc)
                 result[server] = []
+                with self._lock:
+                    self._browse_failed[server] = True
+                    self._last_tag_counts[server] = 0
+            if known_bad and not result.get(server):
+                # Still tried once this cycle; do not loop further retries here.
+                continue
         return result
 
     def resolve_device_binding(
@@ -241,6 +403,9 @@ class OpcManager:
         """Drop browsed tag lists so the next refresh re-browses (keep live clients)."""
         with self._lock:
             self._tags_cache.clear()
+            self._browse_failed.clear()
+            self._live_ok.clear()
+            self._live_quality.clear()
 
     def invalidate_cache(self) -> None:
         # Timed acquire so service Stop cannot hang forever while OPC poll holds the lock.
@@ -252,6 +417,9 @@ class OpcManager:
             return
         try:
             self._tags_cache.clear()
+            self._browse_failed.clear()
+            self._live_ok.clear()
+            self._live_quality.clear()
             for bucket in self._thread_clients.values():
                 for client in bucket.values():
                     try:
@@ -298,6 +466,12 @@ class OpcManager:
         for member in member_names:
             member_key = member.replace(" ", "_")
             exact = f"{base}.{member}"
+            has_children = any(t.startswith(exact + ".") for t in tag_list)
+            # Folders (ASCII char-arrays / Parameters structures): keep the folder
+            # path so callers can detect Bad/Error and expand via opc_snapshot.
+            if has_children:
+                mapping[member_key] = exact
+                continue
             if exact in tags:
                 mapping[member_key] = exact
                 continue
@@ -306,6 +480,9 @@ class OpcManager:
                 if not t.startswith(prefix_dot):
                     continue
                 remainder = t[len(prefix_dot) :]
+                # Never bind a Results member to a char-array cell (…[i]).
+                if "[" in remainder:
+                    continue
                 top = remainder.split(".")[0]
                 if top.replace(" ", "").lower() != member_norm:
                     continue
@@ -322,9 +499,9 @@ class OpcManager:
             return best
 
     def find_running_path(self, server: str, device_tag: str) -> Optional[str]:
-        """Return OTS/OPC ProofTest.{TAG}.Running when present on ``server``.
+        """Return ``…{TAG}.Running`` or ``…Global Vars.{TAG}.Running`` on ``server``.
 
-        Also accepts ``…ProofTest.Global Vars.{TAG}.Running`` used by some X-OPC layouts.
+        Parent folder names are user-defined SILworX resource names.
         """
         tag = str(device_tag or "").strip()
         if not tag or "." in tag:
@@ -341,15 +518,21 @@ class OpcManager:
             except Exception as exc:
                 log.debug("find_running_path browse %s failed: %s", server, exc)
                 tags = []
-        tag_set = set(tags)
-        for branch in ("OTS ProofTest", "OPC ProofTest"):
-            for item in (
-                f"{branch}.{tag}.Running",
-                f"{branch}.Global Vars.{tag}.Running",
-            ):
-                if item in tag_set:
-                    return item
-        return None
+        suffix_plain = f".{tag}.Running"
+        suffix_gv = f".Global Vars.{tag}.Running"
+        candidates = [
+            t
+            for t in tags
+            if t.endswith(suffix_gv) or t.endswith(suffix_plain) or t == f"{tag}.Running"
+        ]
+        if not candidates:
+            return None
+
+        def _rank(path: str) -> tuple:
+            gv = 0 if ".Global Vars." in path else 1
+            return (gv, len(path), path)
+
+        return sorted(candidates, key=_rank)[0]
 
     def health_snapshot(self) -> List[OpcServerInfo]:
         """Non-blocking OPC summary from the last discovery/browse cache (Gate 13).
@@ -359,29 +542,56 @@ class OpcManager:
         """
         acquired = self._lock.acquire(blocking=False)
         if not acquired:
-            # Best-effort: last known server list without tag counts.
+            # Best-effort: last known servers + last successful tag counts (never fake 0).
             servers = list(getattr(self, "_last_servers", []) or [])
+            counts = dict(getattr(self, "_last_tag_counts", {}) or {})
+            failed = dict(getattr(self, "_browse_failed", {}) or {})
+            live_ok = dict(getattr(self, "_live_ok", {}) or {})
+            live_q = dict(getattr(self, "_live_quality", {}) or {})
             return [
-                OpcServerInfo(prog_id=name, connected=True, tag_count=0) for name in servers
+                OpcServerInfo(
+                    prog_id=name,
+                    connected=True,
+                    tag_count=int(counts.get(name, 0)),
+                    browse_ok=not bool(failed.get(name)) or int(counts.get(name, 0)) > 0,
+                    live_ok=live_ok.get(name),
+                    live_quality=str(live_q.get(name, "") or ""),
+                )
+                for name in servers
             ]
         try:
             servers = list(self._last_servers)
             client_names: set[str] = set()
             for bucket in self._thread_clients.values():
                 client_names.update(bucket.keys())
-            tag_counts: Dict[str, int] = {}
+            tag_counts: Dict[str, int] = dict(self._last_tag_counts)
             for key, tags in self._tags_cache.items():
                 srv = key.split("|", 1)[0]
                 tag_counts[srv] = max(tag_counts.get(srv, 0), len(tags))
+                if tags:
+                    self._last_tag_counts[srv] = tag_counts[srv]
+            browse_failed = dict(self._browse_failed)
+            live_ok_map = dict(self._live_ok)
+            live_q_map = dict(self._live_quality)
         finally:
             self._lock.release()
         if not servers:
             return []
         out: List[OpcServerInfo] = []
         for name in servers:
-            tag_count = tag_counts.get(name, 0)
+            tag_count = int(tag_counts.get(name, 0))
+            failed = bool(browse_failed.get(name)) and tag_count == 0
             connected = tag_count > 0 or name in client_names
-            out.append(OpcServerInfo(prog_id=name, connected=connected, tag_count=tag_count))
+            out.append(
+                OpcServerInfo(
+                    prog_id=name,
+                    connected=connected,
+                    tag_count=tag_count,
+                    browse_ok=not failed,
+                    live_ok=live_ok_map.get(name),
+                    live_quality=str(live_q_map.get(name, "") or ""),
+                )
+            )
         return out
 
     def server_status(self) -> List[OpcServerInfo]:

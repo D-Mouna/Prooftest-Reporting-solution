@@ -1,0 +1,3 @@
+Name,Data type,Lower Range Limit,Upper Range Limit,Initial Value,Sequence Number
+X-HART_ASCII_32,BYTE,,,,
+X-HART_ASCII_32.Array Dimension,INT,0,31,,0
