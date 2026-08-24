@@ -7,8 +7,169 @@ let shownPopupKeys = new Set();
 let lastGoodHealth = null;
 
 const DEVICE_VIEW_KEY = "prooftest.deviceListView";
+const THEME_KEY = "prooftest.theme";
 const NO_DEVICE_TEXT = "(No device available)";
 const NO_REPORT_TEXT = "(No report available)";
+const PAGE_TITLES = {
+  monitor: "Monitor",
+  status: "Status",
+  alarms: "Alarms",
+  service: "Service",
+};
+
+function currentTheme() {
+  const attr = document.documentElement.getAttribute("data-theme");
+  return attr === "dark" ? "dark" : "light";
+}
+
+function applyTheme(theme) {
+  const next = theme === "dark" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", next);
+  try {
+    localStorage.setItem(THEME_KEY, next);
+  } catch (_e) {
+    /* ignore */
+  }
+  const btn = document.getElementById("theme-toggle");
+  if (btn) {
+    btn.textContent = next === "dark" ? "Theme: Dark" : "Theme: Light";
+    btn.setAttribute("aria-pressed", next === "dark" ? "true" : "false");
+  }
+}
+
+function setupThemeToggle() {
+  applyTheme(currentTheme());
+  const btn = document.getElementById("theme-toggle");
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    applyTheme(currentTheme() === "dark" ? "light" : "dark");
+  });
+}
+
+function showPage(pageId) {
+  const id = PAGE_TITLES[pageId] ? pageId : "monitor";
+  document.querySelectorAll(".page").forEach((el) => {
+    const match = el.dataset.page === id;
+    el.classList.toggle("active", match);
+  });
+  document.querySelectorAll(".nav-item").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.page === id);
+  });
+  const crumb = document.getElementById("crumb-page");
+  if (crumb) crumb.textContent = PAGE_TITLES[id] || id;
+  document.body.classList.remove("sidebar-open");
+}
+
+function setupNavigation() {
+  document.querySelectorAll(".nav-item[data-page]").forEach((btn) => {
+    btn.addEventListener("click", () => showPage(btn.dataset.page));
+  });
+  document.querySelectorAll("[data-goto]").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.preventDefault();
+      showPage(el.getAttribute("data-goto"));
+    });
+  });
+  const toggle = document.getElementById("sidebar-toggle");
+  if (toggle) {
+    toggle.addEventListener("click", () => {
+      document.body.classList.toggle("sidebar-open");
+    });
+  }
+}
+
+function silworxProjectNameFromHealth(data) {
+  const st = data.service_state || {};
+  const sil = data.silworx || {};
+  const api = data.api_session || {};
+  let name = String(
+    data.attached_project_name ||
+      api.project_name ||
+      sil.silworx_project_name ||
+      sil.project_name ||
+      st.silworx_project_name ||
+      st.project_name ||
+      ""
+  ).trim();
+  if (name) return name;
+  const raw = String(st.silworx_attached_projects || st.silworx_open_projects || "");
+  for (const part of raw.split(";")) {
+    const token = part.trim();
+    if (!token) continue;
+    if (token.includes(":")) return token.split(":").slice(1).join(":").trim();
+    return token;
+  }
+  const open = Array.isArray(data.open_projects) ? data.open_projects : [];
+  if (open.length && open[0]) {
+    return String(open[0].project_name || open[0].project_file || "").trim();
+  }
+  return "";
+}
+
+function silworxProjectDeviceCount(data) {
+  const raw = data.attached_project_devices ?? data.silworx_project_devices;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function updateSummaryChips(data) {
+  if (!data) return;
+  const devices = document.getElementById("chip-devices");
+  const opc = document.getElementById("chip-opc");
+  const service = document.getElementById("chip-service");
+  const silworx = document.getElementById("chip-silworx");
+  const attachedOpc = data.attached_project_opc_devices;
+  const attachedName = silworxProjectNameFromHealth(data);
+  const projectDevices = silworxProjectDeviceCount(data);
+  const silRunning = String(data.silworx_status || "").toLowerCase() === "running";
+  const useProjectCount = Boolean(attachedName) && projectDevices != null;
+  if (devices) {
+    const n = useProjectCount ? projectDevices : Number(data.active_devices ?? NaN);
+    devices.textContent = Number.isFinite(n) ? `Devices ${n}` : "Devices —";
+    if (attachedName) {
+      devices.title = `SILworX project: ${attachedName}`;
+    } else {
+      devices.title = "Open Status";
+    }
+  }
+  if (opc) {
+    const n = useProjectCount && attachedOpc != null ? Number(attachedOpc) : Number(data.opc_devices ?? 0);
+    opc.textContent = `OPC ${Number.isFinite(n) ? n : "—"}`;
+    opc.classList.toggle("warn", n === 0);
+    opc.classList.remove("ok");
+    opc.title = "Open Status";
+  }
+  if (service) {
+    const text = data.starting
+      ? "Starting"
+      : data.stopping
+        ? "Stopping"
+        : data.engine_running
+          ? "Running"
+          : "Stopped";
+    service.textContent = `Service ${text}`;
+    service.classList.toggle("warn", !data.engine_running || data.stopping || data.starting);
+    service.classList.remove("ok");
+  }
+  if (silworx) {
+    silworx.textContent = silRunning ? "SILworX attached" : "SILworX off";
+    silworx.classList.toggle("warn", !silRunning);
+    silworx.classList.remove("ok");
+    if (silRunning && attachedName) {
+      silworx.title = `Attached to ${attachedName}`;
+    } else {
+      silworx.title = "Open Status";
+    }
+  }
+}
+
+function shortAlarmTitle(message) {
+  const raw = String(message || "").trim();
+  if (raw.length <= 120) return raw;
+  const cut = raw.slice(0, 117);
+  const sp = cut.lastIndexOf(" ");
+  return `${sp > 40 ? cut.slice(0, sp) : cut}…`;
+}
 
 function currentDeviceView() {
   const selected = document.querySelector('input[name="device-list-view"]:checked');
@@ -46,6 +207,17 @@ function vendorLogo(resultsType) {
   return UI.asset(`img/${file}`);
 }
 
+function formatResultsTypeLabel(resultsType) {
+  const raw = String(resultsType || "").trim();
+  if (!raw || raw === "unknown") return raw || "—";
+  const prefix = "X-HART_";
+  const suffix = "_Results";
+  if (raw.startsWith(prefix) && raw.endsWith(suffix) && raw.length > prefix.length + suffix.length) {
+    return raw.slice(prefix.length, raw.length - suffix.length);
+  }
+  return raw;
+}
+
 const listSearchState = {
   device: { index: -1 },
   report: { index: -1 },
@@ -53,11 +225,106 @@ const listSearchState = {
 
 function listSearchableItems(list) {
   return [...list.children].filter(
-    (li) => !li.classList.contains("list-placeholder") && !li.classList.contains("list-empty")
+    (li) =>
+      !li.classList.contains("list-placeholder") &&
+      !li.classList.contains("list-empty") &&
+      !li.classList.contains("filter-hidden")
   );
 }
 
+function deviceColumnFilters() {
+  return {
+    device: (document.getElementById("filter-col-device")?.value || "").trim().toLowerCase(),
+    type: (document.getElementById("filter-col-type")?.value || "").trim().toLowerCase(),
+    opc: (document.getElementById("filter-col-opc")?.value || "").trim().toLowerCase(),
+    project: (document.getElementById("filter-col-project")?.value || "").trim().toLowerCase(),
+    server: (document.getElementById("filter-col-server")?.value || "").trim().toLowerCase(),
+  };
+}
+
+/** dataset keys: colDevice, colType, colOpc, colProject, colServer */
+function rowMatchesColumnFiltersFixed(row, filters) {
+  const map = {
+    device: "colDevice",
+    type: "colType",
+    opc: "colOpc",
+    project: "colProject",
+    server: "colServer",
+  };
+  return Object.keys(map).every((key) => {
+    const q = filters[key];
+    if (!q) return true;
+    return String(row.dataset[map[key]] || "").includes(q);
+  });
+}
+
+function applyDeviceFilters(advance = false) {
+  const list = document.getElementById("device-list");
+  const input = document.getElementById("device-search");
+  if (!list) return;
+
+  const query = (input?.value || "").trim().toLowerCase();
+  const filters = deviceColumnFilters();
+  const hasColFilter = Object.values(filters).some(Boolean);
+  const rows = [...list.children].filter(
+    (li) => !li.classList.contains("list-placeholder") && !li.classList.contains("list-empty")
+  );
+
+  let visible = 0;
+  rows.forEach((row) => {
+    row.classList.remove("search-hit", "search-current", "filter-hidden");
+    const colOk = rowMatchesColumnFiltersFixed(row, filters);
+    const searchOk = !query || (row.dataset.searchText || "").includes(query);
+    const show = colOk && searchOk;
+    if (!show) {
+      row.classList.add("filter-hidden");
+    } else {
+      visible += 1;
+      if (query) row.classList.add("search-hit");
+    }
+  });
+
+  const hint = document.getElementById("device-list-hint");
+  if (hint && rows.length) {
+    const view = currentDeviceView();
+    const viewLabel = view === "opc" ? "OPC / Running" : "all devices";
+    if (query || hasColFilter) {
+      hint.textContent = `${visible} of ${rows.length} shown · ${viewLabel}`;
+    } else {
+      hint.textContent = `${rows.length} shown · ${viewLabel}`;
+    }
+  }
+
+  updateDeviceFilterToggleState(filters);
+
+  if (!query) {
+    listSearchState.device.index = -1;
+    return;
+  }
+
+  const matches = rows.filter((row) => !row.classList.contains("filter-hidden"));
+  if (!matches.length) {
+    listSearchState.device.index = -1;
+    return;
+  }
+
+  let idx = listSearchState.device.index;
+  if (!advance || idx < 0) {
+    idx = 0;
+  } else {
+    idx = (idx + 1) % matches.length;
+  }
+  listSearchState.device.index = idx;
+  const current = matches[idx];
+  current.classList.add("search-current");
+  current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
 function applyListSearch(inputId, listId, stateKey, advance = false) {
+  if (listId === "device-list") {
+    applyDeviceFilters(advance);
+    return;
+  }
   const input = document.getElementById(inputId);
   const list = document.getElementById(listId);
   if (!input || !list) return;
@@ -93,6 +360,75 @@ function applyListSearch(inputId, listId, stateKey, advance = false) {
   current.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
+function setDeviceFiltersVisible(visible) {
+  const row = document.getElementById("device-filter-row");
+  const btn = document.getElementById("btn-device-filters");
+  if (!row || !btn) return;
+  row.classList.toggle("hidden", !visible);
+  btn.setAttribute("aria-expanded", visible ? "true" : "false");
+  btn.classList.toggle("is-open", visible);
+  if (visible) {
+    const first = row.querySelector(".col-filter");
+    if (first) window.requestAnimationFrame(() => first.focus());
+  }
+}
+
+function updateDeviceFilterToggleState(filters) {
+  const btn = document.getElementById("btn-device-filters");
+  if (!btn) return;
+  const active = filters || deviceColumnFilters();
+  const hasFilter = Object.values(active).some(Boolean);
+  btn.classList.toggle("is-active", hasFilter);
+}
+
+function clearAllDeviceColumnFilters() {
+  document.querySelectorAll(".col-filter").forEach((input) => {
+    input.value = "";
+  });
+  listSearchState.device.index = -1;
+  applyDeviceFilters(false);
+}
+
+function setupDeviceColumnFilters() {
+  const toggle = document.getElementById("btn-device-filters");
+  if (toggle) {
+    toggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const row = document.getElementById("device-filter-row");
+      const open = row && !row.classList.contains("hidden");
+      setDeviceFiltersVisible(!open);
+    });
+  }
+
+  const clearAll = document.getElementById("btn-clear-device-filters");
+  if (clearAll) {
+    clearAll.addEventListener("click", (e) => {
+      e.stopPropagation();
+      clearAllDeviceColumnFilters();
+    });
+  }
+
+  document.querySelectorAll(".col-filter").forEach((input) => {
+    input.addEventListener("input", () => {
+      listSearchState.device.index = -1;
+      applyDeviceFilters(false);
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        applyDeviceFilters(true);
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setDeviceFiltersVisible(false);
+      }
+      e.stopPropagation();
+    });
+  });
+
+  updateDeviceFilterToggleState();
+}
+
 function setupListSearch(inputId, listId, stateKey) {
   const input = document.getElementById(inputId);
   if (!input) return;
@@ -112,7 +448,7 @@ function showListPlaceholder(listId, text) {
   const list = document.getElementById(listId);
   if (!list) return;
   if (list.tagName === "TBODY") {
-    list.innerHTML = `<tr class="list-placeholder"><td colspan="5">${escapeHtml(text)}</td></tr>`;
+    list.innerHTML = `<tr class="list-placeholder"><td colspan="7">${escapeHtml(text)}</td></tr>`;
     return;
   }
   list.innerHTML = `<li class="list-placeholder">${escapeHtml(text)}</li>`;
@@ -329,9 +665,183 @@ function apiErrorText(err) {
   return raw;
 }
 
+function metricIcon(kind) {
+  const stroke = "currentColor";
+  const common = `fill="none" stroke="${stroke}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"`;
+  if (kind === "list") {
+    return `<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2" ${common}/><path ${common} d="M8 10h8M8 14h5"/></svg>`;
+  }
+  if (kind === "shield-check") {
+    return `<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path ${common} d="M12 3l7 3v6c0 4.5-3.2 7.4-7 9-3.8-1.6-7-4.5-7-9V6l7-3z"/><path ${common} d="M9 12l2 2 4-4"/></svg>`;
+  }
+  if (kind === "circle-check") {
+    return `<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><circle cx="12" cy="12" r="9" ${common}/><path ${common} d="M8 12l2.5 2.5L16 9"/></svg>`;
+  }
+  if (kind === "circle-warn") {
+    return `<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><circle cx="12" cy="12" r="9" ${common}/><path ${common} d="M12 8v5"/><circle cx="12" cy="16.5" r="0.9" fill="${stroke}"/></svg>`;
+  }
+  if (kind === "circle-x") {
+    return `<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><circle cx="12" cy="12" r="9" ${common}/><path ${common} d="M9 9l6 6M15 9l-6 6"/></svg>`;
+  }
+  if (kind === "plug") {
+    // Connected: two barrel connectors joined
+    return (
+      `<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true">` +
+      `<g transform="rotate(-35 12 12)">` +
+      `<rect x="2.5" y="9.5" width="6.5" height="5" rx="1.2" ${common}/>` +
+      `<rect x="8.5" y="10.2" width="3" height="3.6" rx="0.5" ${common}/>` +
+      `<rect x="12.5" y="10.2" width="3" height="3.6" rx="0.5" ${common}/>` +
+      `<rect x="15" y="9.5" width="6.5" height="5" rx="1.2" ${common}/>` +
+      `</g>` +
+      `</svg>`
+    );
+  }
+  if (kind === "plug-off") {
+    // Disconnected: plugs pulled apart with gap + arrows (clearly not joined)
+    return (
+      `<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true">` +
+      `<g transform="rotate(-35 12 12)">` +
+      `<rect x="1" y="9.5" width="6" height="5" rx="1.2" ${common}/>` +
+      `<rect x="6.5" y="10.2" width="2.2" height="3.6" rx="0.5" ${common}/>` +
+      `<rect x="15.3" y="10.2" width="2.2" height="3.6" rx="0.5" ${common}/>` +
+      `<rect x="17" y="9.5" width="6" height="5" rx="1.2" ${common}/>` +
+      `<path ${common} d="M10.2 12H8.8"/>` +
+      `<path ${common} d="M13.8 12h1.4"/>` +
+      `<path ${common} d="M9.4 10.8L8.2 12l1.2 1.2"/>` +
+      `<path ${common} d="M14.6 10.8L15.8 12l-1.2 1.2"/>` +
+      `</g>` +
+      `</svg>`
+    );
+  }
+  if (kind === "project-tree") {
+    // Simple folder-tree: root + two child nodes
+    return `<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path ${common} d="M6 6h6"/><path ${common} d="M9 6v12"/><path ${common} d="M9 12h7"/><path ${common} d="M9 18h7"/><rect x="4" y="4" width="5" height="4" rx="1" ${common}/><rect x="16" y="10" width="5" height="4" rx="1" ${common}/><rect x="16" y="16" width="5" height="4" rx="1" ${common}/></svg>`;
+  }
+  return `<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><circle cx="12" cy="12" r="8" ${common}/><path ${common} d="M12 8v5"/><circle cx="12" cy="16.5" r="0.9" fill="${stroke}"/></svg>`;
+}
+
+function parsePluginSessions(data) {
+  // Empty array is authoritative (e.g. after Disconnect) — do not fall back to
+  // stale silworx_plugin_monitor_state which can still say "up".
+  if (Array.isArray(data.plugin_sessions)) {
+    return data.plugin_sessions.map((s) => ({
+      api_port: Number(s.api_port) || 0,
+      plugin_port: Number(s.plugin_port) || 0,
+      connected: s.connected === true,
+      session_id: String(s.session_id || ""),
+    }));
+  }
+  const toolAttached = String(data.silworx_status || "").toLowerCase() === "running";
+  const registered = (data.plugin_session || {}).registered === true;
+  if (!toolAttached && !registered) {
+    return [];
+  }
+  const raw = String((data.service_state || {}).silworx_plugin_monitor_state || "");
+  if (!raw.trim()) return [];
+  return raw.split(";").map((part) => {
+    const [ports, flag, sid] = String(part).trim().split(":");
+    const [api, plugin] = String(ports || "").split("/");
+    return {
+      api_port: Number(api) || 0,
+      plugin_port: Number(plugin) || 0,
+      connected: String(flag || "").toLowerCase() === "up",
+      session_id: sid && sid !== "-" ? sid : "",
+    };
+  }).filter((s) => s.plugin_port || s.api_port);
+}
+
+function pluginSessionIconsHtml(sessions, registered) {
+  const on = registered === true;
+  const title = on ? "Plugin session registered" : "Plugin session not registered";
+  const cls = on ? "plugin-session-icon is-connected" : "plugin-session-icon is-disconnected";
+  return (
+    `<span class="health-metric-icon ${cls}" title="${escapeHtml(title)}" aria-hidden="true">` +
+    metricIcon(on ? "plug" : "plug-off") +
+    `</span>`
+  );
+}
+
+function healthMetricTile(label, value, hint, tone, state, textValue, wide, iconKind, iconHtml) {
+  const stateClass = state ? ` ${state}` : "";
+  const toneClass = tone ? ` metric-${tone}` : " metric-neutral";
+  const wideClass = wide ? " health-metric-span-2" : "";
+  const multiline = Array.isArray(value);
+  const valueClass =
+    (textValue || multiline ? " health-metric-value is-text" : " health-metric-value") +
+    (multiline ? " is-multiline" : "");
+  const icon = iconHtml || `<span class="health-metric-icon">${metricIcon(iconKind || "info")}</span>`;
+  let valueHtml;
+  if (multiline) {
+    const lines = value.length ? value : ["—"];
+    valueHtml = lines
+      .map((line) => `<span class="health-metric-line">${escapeHtml(line)}</span>`)
+      .join("");
+  } else {
+    valueHtml = escapeHtml(value);
+  }
+  return (
+    `<article class="health-metric${stateClass}${toneClass}${wideClass}">` +
+    `<header class="health-metric-head">` +
+    `<span class="health-metric-label">${escapeHtml(label)}</span>` +
+    icon +
+    `</header>` +
+    `<p class="${valueClass.trim()}">${valueHtml}</p>` +
+    (hint ? `<p class="health-metric-hint">${escapeHtml(hint)}</p>` : "") +
+    `</article>`
+  );
+}
+
+/** @deprecated use healthMetricTile */
 function healthCard(label, value, state) {
-  const cls = state ? ` health-card ${state}` : " health-card";
-  return `<div class="${cls.trim()}"><span class="label">${escapeHtml(label)}</span><span class="value">${escapeHtml(value)}</span></div>`;
+  return healthMetricTile(label, value, "", state === "warn" ? "amber" : "neutral", state, !/^\d+$/.test(String(value)));
+}
+
+function opcServerTableRow(server) {
+  const devices = Number.isFinite(Number(server.devices)) ? Number(server.devices) : 0;
+  const tags = Number.isFinite(Number(server.tags)) ? Number(server.tags) : 0;
+  let status = "Offline";
+  let statusClass = "status-neutral";
+  let live = "—";
+  let liveClass = "status-neutral";
+
+  if (server.connected) {
+    status = "Connected";
+    statusClass = "status-ok";
+    if (server.browse_ok === false && !tags && !devices) {
+      status = "Browse failed";
+      statusClass = "status-bad";
+    }
+    if (server.live_ok === true) {
+      live = "Good";
+      liveClass = "status-ok";
+    } else if (server.live_ok === false) {
+      live = "Bad";
+      liveClass = "status-bad";
+    } else if (server.live_quality) {
+      live = String(server.live_quality);
+      liveClass = "status-neutral";
+    }
+  }
+
+  return (
+    `<tr>` +
+    `<td class="opc-col-name">${escapeHtml(server.name || "—")}</td>` +
+    `<td class="opc-col-status"><span class="status-pill ${statusClass}">${escapeHtml(status)}</span></td>` +
+    `<td class="opc-col-num">${devices}</td>` +
+    `<td class="opc-col-status"><span class="status-pill ${liveClass}">${escapeHtml(live)}</span></td>` +
+    `</tr>`
+  );
+}
+
+function renderOpcServerTable(servers, emptyMessage) {
+  const opcList = document.getElementById("opc-detail-list");
+  if (!opcList) return;
+  if (!servers.length) {
+    const msg = emptyMessage || "No X-OPC servers detected on this host.";
+    opcList.innerHTML = `<tr><td colspan="4" class="opc-server-empty">${escapeHtml(msg)}</td></tr>`;
+    return;
+  }
+  opcList.innerHTML = servers.map((s) => opcServerTableRow(s)).join("");
 }
 
 function renderHealth(data) {
@@ -356,9 +866,40 @@ function renderHealth(data) {
     apiSession.project_name ||
     (apiConnected ? sil.silworx_project_name || sil.project_name || "" : "");
   const silworxStatus = String(data.silworx_status || "").toLowerCase();
-  const silText = silworxStatus === "running" ? "tool attached" : "tool not connected";
-  const silState = silworxStatus === "running" ? "ok" : "warn";
+  const silworxReleased =
+    String(data.silworx_integration || "").toLowerCase() === "released";
+  const attachedProjectDevices = silworxProjectDeviceCount(data);
+  const attachedProjectOpc = data.attached_project_opc_devices;
+  const attachedProjectName = silworxProjectNameFromHealth(data);
+  const hasProjectCounts =
+    attachedProjectName &&
+    attachedProjectDevices != null &&
+    Number.isFinite(Number(attachedProjectDevices));
   const openProjects = Array.isArray(data.open_projects) ? data.open_projects : [];
+  const silworxVersions = [];
+  const seenVersions = new Set();
+  for (const p of openProjects) {
+    const ver = String((p && p.silworx_version) || "").trim();
+    if (ver && !seenVersions.has(ver)) {
+      seenVersions.add(ver);
+      silworxVersions.push(ver);
+    }
+  }
+  const fallbackVersion = String(
+    sil.silworx_version || st.silworx_version || ""
+  ).trim();
+  if (!silworxVersions.length && fallbackVersion) {
+    silworxVersions.push(fallbackVersion);
+  }
+  const silLines = [];
+  if (silworxReleased) {
+    silLines.push("Released for uninstall");
+  } else if (silworxVersions.length) {
+    silLines.push(...silworxVersions);
+  } else {
+    silLines.push("—");
+  }
+  const silState = silworxReleased || !silworxVersions.length ? "warn" : "";
   const openFromState = String(st.silworx_open_projects || "")
     .split(";")
     .map((s) => s.trim())
@@ -366,22 +907,39 @@ function renderHealth(data) {
   const openNames = openProjects.length
     ? openProjects.map((p) => p.project_name || p.project_file || p.session_id).filter(Boolean)
     : openFromState;
-  const openText =
-    openNames.length <= 1
-      ? openNames[0] || sil.project_name || sil.silworx_project_name || "—"
-      : `${openNames.length} open · ${openNames.join(" · ")}`;
+  const openLines = openNames.length
+    ? openNames
+    : [sil.project_name || sil.silworx_project_name || "—"].filter(Boolean);
   const attachedMap = data.attached_projects || {};
-  const attachedNames = Object.keys(attachedMap)
+  const attachedLines = Object.keys(attachedMap)
     .map((port) => `${attachedMap[port]} (${port})`)
     .filter(Boolean);
-  const attachedText = attachedNames.length ? attachedNames.join(" · ") : "—";
 
   const queueState = (data.queue_depth || 0) > 10 ? "warn" : "";
+  const pluginSessions = parsePluginSessions(data);
+  const pluginConnectedCount = pluginSessions.filter((s) => s.connected).length;
   const pluginInfo = data.plugin_session || {};
-  const pluginName = String(pluginInfo.name || "").trim();
-  const pluginRegistered = pluginInfo.registered === true || pluginInfo.connected === true;
-  const pluginText = pluginName || "not registered";
-  const pluginState = pluginRegistered ? "ok" : "";
+  const pluginName = String(
+    pluginInfo.name || st.silworx_plugin_name || "prooftest_session_plugin"
+  ).trim();
+  const pluginRegistered =
+    pluginConnectedCount > 0 ||
+    pluginInfo.registered === true ||
+    pluginInfo.connected === true;
+  const pluginLines = [];
+  if (pluginRegistered || pluginSessions.length) {
+    pluginLines.push(`${pluginName}:`);
+    const rows = pluginSessions.length
+      ? pluginSessions
+      : [{ api_port: 0, plugin_port: 0, connected: false, session_id: "" }];
+    for (const s of rows) {
+      const ports = s.plugin_port ? `${s.api_port}/${s.plugin_port}` : "—";
+      pluginLines.push(`– ${ports}`);
+    }
+  } else {
+    pluginLines.push("not registered");
+  }
+  const pluginState = pluginRegistered && pluginConnectedCount > 0 ? "" : "warn";
   const serviceState = data.starting
     ? "Starting"
     : data.stopping
@@ -389,7 +947,8 @@ function renderHealth(data) {
       : data.engine_running
         ? "Running"
         : "Stopped";
-  const serviceCls = data.starting || data.stopping || !data.engine_running ? "warn" : "ok";
+  const serviceCls =
+    data.starting || data.stopping || !data.engine_running ? "warn" : "";
   const sourceRaw = String(data.device_list_source || st.device_list_source || "").toLowerCase();
   const sourceText = sourceRaw === "api+opc"
     ? "API + OPC"
@@ -402,61 +961,80 @@ function renderHealth(data) {
           : "unified";
 
   const opcActive = Number(data.opc_devices ?? 0);
+  const allDevicesValue = hasProjectCounts
+    ? String(Number(attachedProjectDevices))
+    : String(data.active_devices ?? 0);
+  const opcDevicesValue = hasProjectCounts && attachedProjectOpc != null
+    ? String(Number(attachedProjectOpc))
+    : String(opcActive);
+  const opcCountState =
+    (hasProjectCounts ? Number(attachedProjectOpc) : opcActive) > 0 ? "" : "warn";
+  const opcTone = opcCountState ? "amber" : "green";
+  const serviceTone = serviceCls ? "amber" : "green";
+  const silTone = silworxReleased ? "red" : silState ? "amber" : "blue";
+  const pluginTone =
+    pluginConnectedCount >= 2 ? "green" : pluginConnectedCount === 1 ? "amber" : "red";
+  const queueTone = queueState ? "amber" : "neutral";
+  const attachedTone = attachedLines.length ? "blue" : "amber";
+
+  const serviceIcon = serviceCls ? "circle-warn" : "circle-check";
+  const pluginIcons = pluginSessionIconsHtml(pluginSessions, pluginRegistered);
+  const silIcon = silworxReleased ? "circle-x" : silworxVersions.length ? "circle-check" : "circle-warn";
+  const silHint = silworxReleased
+    ? "Operator released SILworX for uninstall — use Re-integrate after reinstall"
+    : "SILworX version(s) the tool detects";
+
   grid.innerHTML = [
-    `<div class="health-row health-row-counts">
-      ${healthCard("ALL DEVICES", String(data.active_devices ?? 0), "")}
-      ${healthCard("OPC ACTIVE DEVICES", String(opcActive), opcActive > 0 ? "ok" : "warn")}
-    </div>`,
-    `<div class="health-row health-row-top">
-      ${healthCard("Service", serviceState, serviceCls)}
-      ${healthCard("Database", data.database || "unknown", "")}
-    </div>`,
-    `<div class="health-row health-row-mid">
-      ${healthCard("Device list", sourceText, "")}
-      ${healthCard("SILworX (this tool)", silText, silState)}
-      ${healthCard("Plugin session", pluginText, pluginState)}
-      ${healthCard("Queue depth", String(data.queue_depth ?? 0), queueState)}
-    </div>`,
-    `<div class="health-row health-row-mid">
-      ${healthCard("Open SILworX projects", openText, openNames.length > 1 ? "ok" : "")}
-      ${healthCard("API-scanned projects", attachedText, attachedNames.length ? "ok" : "warn")}
-    </div>`,
+    healthMetricTile(
+      "ALL DEVICES",
+      allDevicesValue,
+      attachedProjectName ? `Project: ${attachedProjectName}` : "SILworX project devices in catalog",
+      "blue",
+      "",
+      false,
+      false,
+      "list"
+    ),
+    healthMetricTile(
+      "OPC ACTIVE DEVICES",
+      opcDevicesValue,
+      "Devices with live OPC path",
+      opcTone,
+      opcCountState,
+      false,
+      false,
+      "list"
+    ),
+    healthMetricTile("Service", serviceState, "Prooftest engine process", serviceTone, serviceCls, true, false, serviceIcon),
+    healthMetricTile("Database", data.database || "unknown", "Annex catalog store", "neutral", "", true, false, "info"),
+    healthMetricTile("Device list", sourceText, "Discovery source for device table", "neutral", "", true, false, "info"),
+    healthMetricTile("SILworX", silLines, silHint, silTone, silState, true, false, silIcon),
+    healthMetricTile(
+      "Plugin sessions",
+      pluginLines,
+      "SILworX API plugin WebSocket per instance",
+      pluginTone,
+      pluginState,
+      true,
+      false,
+      "plug",
+      pluginIcons
+    ),
+    healthMetricTile("Queue depth", String(data.queue_depth ?? 0), "Pending report jobs", queueTone, queueState, false, false, "info"),
+    healthMetricTile("Open SILworX projects", openLines, "Projects open in SILworX", "neutral", "", true, true, "info"),
+    healthMetricTile(
+      "API-scanned projects",
+      attachedLines.length ? attachedLines : ["—"],
+      "Attached API scan targets",
+      attachedTone,
+      attachedLines.length ? "" : "warn",
+      true,
+      true,
+      "project-tree"
+    ),
   ].join("");
 
-  const servers = data.opc_servers || [];
-  const opcList = document.getElementById("opc-detail-list");
-  if (opcList) {
-    if (!servers.length) {
-      opcList.innerHTML = `<li class="opc-server-empty">No X-OPC servers detected on this host.</li>`;
-    } else {
-      opcList.innerHTML = servers
-        .map((s) => {
-          let status = "offline";
-          let statusClass = "is-offline";
-          const devices = Number(s.devices);
-          const tags = Number(s.tags);
-          if (s.connected) {
-            if (s.browse_ok === false && !tags && !devices) {
-              status = "browse failed";
-              statusClass = "is-bad";
-            } else if (s.live_ok === false) {
-              status = `${Number.isFinite(devices) ? devices : 0} devices, live bad`;
-              statusClass = "is-bad";
-            } else {
-              status = `${Number.isFinite(devices) ? devices : 0} devices`;
-              statusClass = "is-ok";
-            }
-          }
-          return (
-            `<li>` +
-            `<span class="opc-server-name">${escapeHtml(s.name)}</span>` +
-            `<span class="opc-server-status ${statusClass}">${escapeHtml(status)}</span>` +
-            `</li>`
-          );
-        })
-        .join("");
-    }
-  }
+  renderOpcServerTable(data.opc_servers || []);
 
   const err = data.last_error;
   const errBox = document.getElementById("last-error-banner");
@@ -470,34 +1048,35 @@ function renderHealth(data) {
     }
   }
   // Only flag attention when a connected/known ProofTest server is unhealthy or service is stopping.
-  const proofServers = servers.filter(
+  const proofServers = (data.opc_servers || []).filter(
     (s) => /prooftest|proof.?tes|x-opc|x_ots|x-ots/i.test(String(s.name || ""))
   );
-  const watch = proofServers.length ? proofServers : servers;
+  const watch = proofServers.length ? proofServers : data.opc_servers || [];
   const hasIssue =
     (watch.length > 0 && watch.every((s) => !s.connected)) ||
     data.stopping ||
     Boolean(data.last_error);
   if (badge) {
     badge.textContent = hasIssue ? "attention" : "healthy";
-    badge.className = hasIssue ? "panel-badge panel-badge-warn" : "panel-badge panel-badge-ok";
+    badge.className = hasIssue
+      ? "panel-badge panel-badge-warn status-summary-badge"
+      : "panel-badge panel-badge-ok status-summary-badge";
   }
+  updateSummaryChips(data);
 }
 
 function renderOfflineHealth() {
   const grid = document.getElementById("health-grid");
   grid.innerHTML = [
-    healthCard("Mode", "Offline preview", "warn"),
-    healthCard("Database", "—", ""),
-    healthCard("Service", "not connected", "warn"),
+    healthMetricTile("Mode", "Offline preview", "UI loaded without live service", "amber", "warn", true, false, "circle-warn"),
+    healthMetricTile("Database", "—", "Annex catalog store", "neutral", "", true, false, "info"),
+    healthMetricTile("Service", "not connected", "Start the Prooftest engine", "red", "warn", true, false, "circle-x"),
   ].join("");
-  const opcList = document.getElementById("opc-detail-list");
-  if (opcList) {
-    opcList.innerHTML =
-      `<li class="opc-server-empty">Start the Prooftest service and open http://127.0.0.1:8080/ for live data.</li>`;
-  }
-  document.getElementById("health-status-badge").textContent = "offline";
-  document.getElementById("health-status-badge").className = "panel-badge panel-badge-warn";
+  renderOpcServerTable(
+    [],
+    "Start the Prooftest service and open http://127.0.0.1:8080/ for live data."
+  );
+  document.getElementById("health-status-badge").className = "panel-badge panel-badge-warn status-summary-badge";
 }
 
 function renderAlarms(payload) {
@@ -505,10 +1084,20 @@ function renderAlarms(payload) {
   const panel = document.getElementById("alarms");
   const list = document.getElementById("alarm-list");
   const badge = document.getElementById("alarm-count-badge");
+  const navBadge = document.getElementById("nav-alarm-badge");
   const activeCount = alarms.filter((a) => a.active).length;
 
   badge.textContent = `${activeCount} active`;
   panel.classList.toggle("has-alarms", activeCount > 0);
+  if (navBadge) {
+    if (activeCount > 0) {
+      navBadge.hidden = false;
+      navBadge.textContent = String(activeCount);
+    } else {
+      navBadge.hidden = true;
+      navBadge.textContent = "0";
+    }
+  }
 
   if (!alarms.length) {
     list.innerHTML = '<p class="alarm-empty">No alarms — service operating normally.</p>';
@@ -533,10 +1122,20 @@ function renderAlarms(payload) {
         a.id && !a.acknowledged
           ? `<button type="button" class="btn-ack" data-alarm-id="${escapeHtml(String(a.id))}">Acknowledge</button>`
           : "";
+      const fullMsg = String(a.message || "");
+      const shortMsg = shortAlarmTitle(fullMsg);
+      const needsExpand = fullMsg.length > 120;
+      const msgHtml = needsExpand
+        ? `<p class="alarm-msg-short">${escapeHtml(shortMsg)}</p>
+           <details class="alarm-details">
+             <summary>Show full details</summary>
+             <pre>${escapeHtml(fullMsg)}</pre>
+           </details>`
+        : `<p class="alarm-msg">${escapeHtml(fullMsg)}</p>`;
       return `<article class="alarm-item${a.acknowledged ? " acked" : ""}">
         <span class="alarm-step">${escapeHtml(a.step || "?")}</span>
         <div class="alarm-body">
-          <p class="alarm-msg">${escapeHtml(a.message)}</p>
+          ${msgHtml}
           <p class="alarm-meta"><span class="alarm-status ${life.cls}">${life.text}</span>${ackBadge}${escapeHtml(a.severity || "Error")}${device} · ${time}</p>
           ${hint}
           ${ackBtn}
@@ -568,6 +1167,21 @@ function showPopup(popup) {
   document.getElementById("modal-message").textContent = popup.message || "";
   document.getElementById("modal-solution").textContent = popup.solution || "See specification troubleshooting catalog.";
   document.getElementById("modal").classList.remove("hidden");
+}
+
+function deviceTestCell(device) {
+  if (!device || !device.test_in_progress) {
+    return '<td class="device-test-cell" aria-label="No prooftest running"></td>';
+  }
+  const started = device.test_started_at || device.started_at;
+  const title = started
+    ? `Prooftest running · started ${formatStartedAt(started)}`
+    : "Prooftest running";
+  return (
+    `<td class="device-test-cell">` +
+    `<span class="device-test-running" title="${escapeHtml(title)}">` +
+    `<span class="device-test-dot" aria-hidden="true"></span>Running</span></td>`
+  );
 }
 
 async function loadDevices() {
@@ -620,36 +1234,53 @@ async function loadDevices() {
 
   list.innerHTML = "";
   let selectionStillPresent = false;
-  devices.forEach((d) => {
+  devices.forEach((d, idx) => {
     const tr = document.createElement("tr");
     const id = d.device_id || `${d.project || ""}|${d.device_tag}`;
-    tr.dataset.searchText = `${d.device_tag} ${d.results_type || ""} ${d.project || ""} ${d.opc_server || ""}`.toLowerCase();
+    const resultsType = d.results_type && String(d.results_type).trim() ? d.results_type : "unknown";
+    const typeLabel = formatResultsTypeLabel(resultsType);
+    const project = d.project || d.silworx_project || "";
+    const opcServer = d.opc_server || "";
+    const onOpc = Boolean(d.present_on_opc);
+    const opcLabel = onOpc ? "opc" : "not on opc";
+    tr.dataset.searchText = `${d.device_tag} ${typeLabel} ${resultsType} ${project} ${opcServer} ${opcLabel}`.toLowerCase();
+    tr.dataset.colDevice = String(d.device_tag || "").toLowerCase();
+    tr.dataset.colType = `${typeLabel} ${resultsType}`.toLowerCase();
+    tr.dataset.colOpc = opcLabel;
+    tr.dataset.colProject = String(project).toLowerCase();
+    tr.dataset.colServer = String(opcServer).toLowerCase();
     tr.dataset.deviceId = id;
     if (id === selectedDeviceId || (!selectedDeviceId && d.device_tag === selectedDevice)) {
       tr.classList.add("selected");
       selectionStillPresent = true;
       selectedDevice = d.device_tag;
       selectedDeviceId = id;
-      selectedProject = d.project || d.silworx_project || "";
+      selectedProject = project;
       selectedResultsType = d.results_type;
     }
-    const onOpc = Boolean(d.present_on_opc);
+    if (d.test_in_progress) {
+      tr.classList.add("device-row-running");
+    }
     const status = onOpc
       ? '<span class="device-status on-opc">OPC</span>'
       : '<span class="device-status off-opc">not on OPC</span>';
     tr.innerHTML = `
+      <td class="device-row-corner"><span class="row-index" title="Row ${idx + 1}">${idx + 1}</span></td>
       <td class="device-tag-cell">
-        <img class="device-logo" src="${vendorLogo(d.results_type)}" alt=""/>
+        <span class="device-logo-wrap" aria-hidden="true">
+          <img class="device-logo" src="${vendorLogo(d.results_type)}" alt=""/>
+        </span>
         <span class="device-tag">${escapeHtml(d.device_tag)}</span>
       </td>
-      <td>${escapeHtml(d.results_type && String(d.results_type).trim() ? d.results_type : "unknown")}</td>
+      <td title="${escapeHtml(resultsType)}">${escapeHtml(typeLabel)}</td>
       <td>${status}</td>
-      <td>${escapeHtml(d.project || d.silworx_project || "")}</td>
-      <td>${escapeHtml(d.opc_server || "")}</td>`;
+      <td>${escapeHtml(project)}</td>
+      <td>${escapeHtml(opcServer)}</td>
+      ${deviceTestCell(d)}`;
     tr.onclick = () => {
       selectedDevice = d.device_tag;
       selectedDeviceId = id;
-      selectedProject = d.project || d.silworx_project || "";
+      selectedProject = project;
       selectedResultsType = d.results_type;
       [...list.children].forEach((c) => c.classList.remove("selected"));
       tr.classList.add("selected");
@@ -670,9 +1301,20 @@ async function loadDevices() {
       if (openBtn) openBtn.disabled = true;
     }
   }
+  if (!selectedDeviceId && !selectedDevice && devices.length) {
+    const first = devices[0];
+    const firstId = first.device_id || `${first.project || ""}|${first.device_tag}`;
+    selectedDevice = first.device_tag;
+    selectedDeviceId = firstId;
+    selectedProject = first.project || first.silworx_project || "";
+    selectedResultsType = first.results_type;
+    const firstRow = [...list.querySelectorAll("tr")].find((r) => r.dataset.deviceId === firstId);
+    if (firstRow) firstRow.classList.add("selected");
+    loadReports();
+  }
   list.scrollTop = previousScroll;
   updateSelectedLabel();
-  applyListSearch("device-search", "device-list", "device", false);
+  applyDeviceFilters(false);
 }
 
 function updateSelectedLabel() {
@@ -682,7 +1324,7 @@ function updateSelectedLabel() {
     label.textContent = "(No report selected)";
     return;
   }
-  label.textContent = `Selected: ${selectedDevice}${selectedProject ? ` · ${selectedProject}` : ""}${selectedResultsType ? ` (${selectedResultsType})` : ""}`;
+  label.textContent = `Selected: ${selectedDevice}${selectedProject ? ` · ${selectedProject}` : ""}${selectedResultsType ? ` (${formatResultsTypeLabel(selectedResultsType)})` : ""}`;
 }
 
 function formatStartedAt(value) {
@@ -1036,6 +1678,37 @@ document.getElementById("btn-start-service").onclick = async () => {
     await updateServiceButtons();
   }
 };
+async function waitForEngineStopped(timeoutMs = 45000) {
+  const myGen = engineWaitGeneration;
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (myGen !== engineWaitGeneration) {
+      return false;
+    }
+    try {
+      const health = await fetchJson("/api/health", { timeoutMs: 4000 });
+      await updateServiceButtons(health);
+      await pollStatus();
+      if (!health.stopping && !health.engine_running && !health.starting) {
+        return true;
+      }
+      if (health.stopping) {
+        showServiceBanner("Engine stopping — waiting for OPC/SILworX cleanup…");
+      }
+    } catch (err) {
+      if (myGen !== engineWaitGeneration) {
+        return false;
+      }
+      showServiceBanner(`Waiting for Stop: ${err.message}`);
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  if (myGen === engineWaitGeneration) {
+    showServiceBanner("Stop is taking longer than expected — try Start again, or check service_stderr.log.");
+  }
+  return false;
+}
+
 document.getElementById("btn-stop-service").onclick = async () => {
   if (!UI.isLive) return;
   if (
@@ -1049,9 +1722,15 @@ document.getElementById("btn-stop-service").onclick = async () => {
   document.getElementById("btn-stop-service").disabled = true;
   try {
     await fetchJson("/api/stop?reason=ui_stop", { method: "POST" });
-    showServiceBanner("Engine stopped. Web interface is still active — use Start service to resume.");
-    document.getElementById("btn-start-service").disabled = false;
+    showServiceBanner("Engine stopping — waiting for cleanup…");
     await updateServiceButtons({ stopping: true, starting: false, engine_running: false });
+    const stopped = await waitForEngineStopped(45000);
+    if (stopped) {
+      showServiceBanner("Engine stopped. Web interface is still active — use Start service to resume.");
+      document.getElementById("btn-start-service").disabled = false;
+      await updateServiceButtons();
+      await pollStatus();
+    }
   } catch (err) {
     showServiceBanner(`Stop failed: ${err.message}`);
     await updateServiceButtons();
@@ -1074,19 +1753,79 @@ function showArchivePath(path) {
   el.classList.remove("hidden");
 }
 
-document.getElementById("btn-archive-lists").onclick = async () => {
-  if (!UI.isLive) return;
-  try {
-    const result = await fetchJson("/api/archives", { method: "POST" });
-    const path = result.path || result.archive_id || "List Archives";
-    showArchivePath(path);
-    showServiceBanner(
-      `Archived ${result.device_count || 0} devices and ${result.report_count || 0} reports.`
-    );
-  } catch (err) {
-    showServiceBanner(`Archive failed: ${apiErrorText(err)}`);
+function closeImportExportMenu() {
+  const menu = document.querySelector(".import-export-menu");
+  if (menu) menu.removeAttribute("open");
+}
+
+function filenameFromDisposition(value, fallbackName) {
+  const fallback = fallbackName || "list-archive.zip";
+  const raw = String(value || "");
+  const utf8Match = raw.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match && utf8Match[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch (_ignore) {
+      return utf8Match[1];
+    }
   }
-};
+  const plainMatch = raw.match(/filename="?([^\";]+)"?/i);
+  return plainMatch && plainMatch[1] ? plainMatch[1] : fallback;
+}
+
+async function exportArchiveToUserLocation() {
+  if (!UI.isLive) return;
+  const url = UI.api("/api/archives/export");
+  if (!url) return;
+  try {
+    const token = apiAuthToken();
+    const headers = token ? { "X-Prooftest-Token": token } : undefined;
+    const res = await fetch(url, { method: "POST", headers });
+    if (!res.ok) throw new Error(await res.text());
+    const blob = await res.blob();
+    const filename = filenameFromDisposition(
+      res.headers.get("Content-Disposition"),
+      "list-archive.zip"
+    );
+    const archivePath = res.headers.get("X-Archive-Path") || "";
+    const deviceCount = Number(res.headers.get("X-Device-Count") || 0);
+    const reportCount = Number(res.headers.get("X-Report-Count") || 0);
+
+    if (window.showSaveFilePicker) {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: "Zip archive", accept: { "application/zip": [".zip"] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+    } else {
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(href);
+    }
+
+    showArchivePath(archivePath);
+    showServiceBanner(`Exported ${deviceCount} devices and ${reportCount} reports.`);
+  } catch (err) {
+    const message = apiErrorText(err);
+    if (
+      /404|not found|method not allowed|405/i.test(message) &&
+      /archives\/export|detail/i.test(String((err && err.message) || ""))
+    ) {
+      showServiceBanner("Export is not available in the running service yet. Restart the Prooftest service, then try Export again.");
+    } else {
+      showServiceBanner(`Export failed: ${message}`);
+    }
+  } finally {
+    closeImportExportMenu();
+  }
+}
 
 document.getElementById("btn-keep-opc").onclick = async () => {
   if (!UI.isLive) return;
@@ -1115,10 +1854,20 @@ document.getElementById("btn-keep-opc").onclick = async () => {
   }
 };
 
-document.getElementById("btn-browse-restore").onclick = () => {
-  if (!UI.isLive) return;
-  document.getElementById("archive-file").click();
-};
+const importBtn = document.getElementById("btn-import-list");
+if (importBtn) {
+  importBtn.onclick = () => {
+    if (!UI.isLive) return;
+    const fileInput = document.getElementById("archive-file");
+    if (fileInput) fileInput.click();
+    closeImportExportMenu();
+  };
+}
+
+const exportBtn = document.getElementById("btn-export-list");
+if (exportBtn) {
+  exportBtn.onclick = () => exportArchiveToUserLocation();
+}
 
 document.getElementById("archive-file").onchange = async (event) => {
   const file = event.target.files && event.target.files[0];
@@ -1172,8 +1921,11 @@ document.getElementById("history-modal").addEventListener("click", (event) => {
 });
 
 refreshAll(false);
+setupThemeToggle();
+setupNavigation();
 setupListSearch("device-search", "device-list", "device");
 setupListSearch("report-search", "report-list", "report");
+setupDeviceColumnFilters();
 setupDeviceViewOptions();
 if (UI.isLive) {
   setInterval(pollStatus, 2000);

@@ -200,6 +200,10 @@ class DatabaseStoreAdapter:
     def list_devices(self, view: str = "all") -> list[dict]:
         return self._db.list_devices(view)
 
+    def list_inactive_devices(self) -> list[dict]:
+        fn = getattr(self._db, "list_inactive_devices", None)
+        return list(fn() or []) if callable(fn) else []
+
     def reconcile(self, active_ids: list[str]) -> None:
         self._db.reconcile_device_list(active_ids)
 
@@ -408,6 +412,11 @@ class AnnexListArchiveAdapter:
         from prooftest.annex_list_archive import create_list_archive
 
         return create_list_archive(self._host.db, self._host.config)
+
+    def export_archive(self) -> tuple[dict, bytes]:
+        from prooftest.annex_list_archive import export_list_archive
+
+        return export_list_archive(self._host.db, self._host.config)
 
     def restore_archive(self, archive_id: str) -> dict:
         from prooftest.annex_list_archive import restore_list_archive

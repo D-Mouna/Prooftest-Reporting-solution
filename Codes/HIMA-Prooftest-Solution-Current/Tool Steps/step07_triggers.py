@@ -284,6 +284,7 @@ class SilworxSyncTriggers:
     _attached_project_names_by_api: Dict[int, str] = field(default_factory=dict, repr=False)
     _last_attached_api_port: Optional[int] = field(default=None, repr=False)
     _silworx_api_suspended: bool = field(default=False, repr=False)
+    _operator_detached: bool = field(default=False, repr=False)
     _silworx_down_streak: int = field(default=0, repr=False)
     _silworx_session_was_active: bool = field(default=False, repr=False)
     _silworx_close_detected_at: Optional[float] = field(default=None, repr=False)
@@ -295,6 +296,10 @@ class SilworxSyncTriggers:
     def is_api_suspended(self) -> bool:
         """True when SILworX is down and the service must not open API sessions."""
         return self._silworx_api_suspended
+
+    def is_operator_detached(self) -> bool:
+        """True after Disconnect until Connect — do not auto-resume plugin/API."""
+        return bool(getattr(self, "_operator_detached", False))
 
     def owns_api_session(self) -> bool:
         """True when this service still tracks an owned API session (legacy; tool no longer opens projects)."""
@@ -742,15 +747,17 @@ class SilworxSyncTriggers:
         self._attached_project_names_by_api.clear()
         self._active_api_port = None
         self._silworx_api_suspended = True
+        self._operator_detached = True
         log.info("SILworX tool session detached (SILworX software left running)")
 
     def resume_tool_clients(self) -> None:
         """Re-enable API/plugin attach. Does not open a SILworX project."""
+        self._operator_detached = False
         self.prepare_for_engine_start()
         self.start_monitor()
 
     def is_tool_attached(self) -> bool:
-        if self.is_api_suspended():
+        if self.is_api_suspended() or self.is_operator_detached():
             return False
         return bool(self._attached_session_ids_by_api) or bool(self._attached_project_names_by_api)
 
@@ -806,6 +813,7 @@ class SilworxSyncTriggers:
     def prepare_for_engine_start(self) -> None:
         """Clear G-19 suspend flags so a UI Start can use SILworX API again."""
         self._silworx_api_suspended = False
+        self._operator_detached = False
         self._silworx_down_streak = 0
         log.info("SILworX API suspend cleared for engine start")
 
@@ -822,6 +830,24 @@ class SilworxSyncTriggers:
         if self._plugin_monitor is None:
             return ""
         return self._plugin_monitor.port_states_summary()
+
+    def plugin_session_states(self) -> list:
+        """Per-port plugin WebSocket state for Status UI (connected / disconnected)."""
+        monitor = self._plugin_monitor
+        if monitor is None:
+            return []
+        with monitor._lock:
+            rows = []
+            for state in sorted(monitor._ports.values(), key=lambda s: s.plugin_port):
+                rows.append(
+                    {
+                        "api_port": int(state.api_port),
+                        "plugin_port": int(state.plugin_port),
+                        "connected": bool(state.connected),
+                        "session_id": str(state.session_id or ""),
+                    }
+                )
+            return rows
 
     def api_connected_project_name(self, device_list_source: str = "") -> str:
         """Project name when the device list is served via SILworX API."""
@@ -961,6 +987,11 @@ Case1SyncTriggers = SilworxSyncTriggers
 
 def run_background_sync_iteration(service, now: float) -> None:
     """Run one Step 7 background synchronization iteration (unified path)."""
+    if getattr(service, "_stop", None) is not None and service._stop.is_set():
+        return
+    if getattr(service, "_stopped", False) and not getattr(service, "_starting", False):
+        return
+
     from prooftest.results_csv import load_all_structures
     from prooftest.step01_setup import is_silworx_installed
 
@@ -988,6 +1019,18 @@ def run_background_sync_iteration(service, now: float) -> None:
             service._case1_sync._silworx_api_suspended = True
             service.db.set_service_state("silworx_api_connected", "0")
             service.db.set_service_state("device_list_source", "opc_fallback")
+            service.db.set_service_state("silworx_plugin_monitor_state", "")
+        elif getattr(service._case1_sync, "is_operator_detached", lambda: False)():
+            # Disconnect SILworX: stay detached until Connect — do not auto-resume.
+            service._case1_sync._silworx_api_suspended = True
+            service.db.set_service_state("silworx_api_connected", "0")
+            service.db.set_service_state("silworx_plugin_monitor_state", "")
+            if service._case1_sync._plugin_monitor is not None:
+                try:
+                    service._case1_sync._plugin_monitor.stop()
+                except Exception:
+                    pass
+                service._case1_sync._plugin_monitor = None
         # G-19: release API session when SILworX software is down.
         elif silworx_running:
             service._silworx_uninstall_released = False
@@ -1009,6 +1052,8 @@ def run_background_sync_iteration(service, now: float) -> None:
             monitor_summary = service._case1_sync.plugin_monitor_summary()
             if monitor_summary:
                 service.db.set_service_state("silworx_plugin_monitor_state", monitor_summary)
+            else:
+                service.db.set_service_state("silworx_plugin_monitor_state", "")
             service.db.set_service_state("silworx_api_connected", "1" if instances else "0")
         else:
             service._case1_sync._silworx_down_streak += 1
@@ -1027,6 +1072,7 @@ def run_background_sync_iteration(service, now: float) -> None:
         api_unavailable = (
             integration_released
             or service._case1_sync.is_api_suspended()
+            or getattr(service._case1_sync, "is_operator_detached", lambda: False)()
             or not silworx_running
         )
         need_api_attach = (

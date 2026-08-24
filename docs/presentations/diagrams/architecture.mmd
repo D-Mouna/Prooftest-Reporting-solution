@@ -1,0 +1,28 @@
+flowchart TB
+  subgraph plant["Plant / engineering"]
+    DEV["Field devices<br/>HART proof tests"]
+    SIL["SILworX<br/>engineering software"]
+  end
+
+  DEV -->|"tests happen here"| SIL
+
+  OPC["OPC / live data link<br/>(X-OPC on the station PC)"]
+  TOOL["Reporting tool<br/>(this solution — Devices hub)"]
+  DB["Database<br/>saved results"]
+  REP["Reports<br/>HTML + PDF"]
+  UI["Local screen<br/>http://127.0.0.1:8080"]
+
+  SIL -->|"device names and types<br/>(when tool is connected)"| TOOL
+  OPC -->|"live values + Running signal<br/>(always)"| TOOL
+  TOOL --> DB
+  TOOL --> REP
+  TOOL --> UI
+
+  classDef sil fill:#FFF4E5,stroke:#B45309,color:#1a1a1a
+  classDef opc fill:#E6F4EA,stroke:#2F6F4E,color:#1a1a1a
+  classDef tool fill:#E8EEF4,stroke:#003366,color:#003366,stroke-width:3px
+  classDef store fill:#F3F4F6,stroke:#4A5568,color:#1a1a1a
+  class SIL sil
+  class OPC opc
+  class TOOL tool
+  class DB,REP,UI store

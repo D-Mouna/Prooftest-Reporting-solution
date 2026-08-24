@@ -106,10 +106,7 @@ class ApplicationFacade:
         self._host.start()
 
     def stop_engine(self, reason: str = "ui_stop") -> None:
-        self._host.request_stop_flags(reason)
-        from prooftest.annex_stop_service import perform_graceful_shutdown
-
-        perform_graceful_shutdown(self._host, reason)
+        self._host.stop(reason)
 
     def request_stop_flags(self, reason: str) -> None:
         self._host.request_stop_flags(reason)
@@ -131,6 +128,16 @@ class ApplicationFacade:
         try:
             self._host.db.set_service_state("silworx_api_connected", "0")
             self._host.db.set_service_state("device_list_source", "opc_fallback")
+            self._host.db.set_service_state("silworx_project_devices", "")
+            self._host.db.set_service_state("silworx_plugin_monitor_state", "")
+            self._host.db.set_service_state("silworx_attached_projects", "")
+        except Exception:
+            pass
+        try:
+            # Drop cached health so Status immediately shows disconnected plugins.
+            self._host._health_cache = {}
+            self._host._health_cache_at = 0.0
+            self._host._cached_service_state = {}
         except Exception:
             pass
         result["engine_running"] = bool(self._host.engine_running)
@@ -201,6 +208,9 @@ class ApplicationFacade:
 
     def create_archive(self) -> dict:
         return self.query.create_archive()
+
+    def export_archive(self) -> tuple[dict, bytes]:
+        return self.query.export_archive()
 
     def restore_archive(self, archive_id: str) -> dict:
         return self.query.restore_archive(archive_id)

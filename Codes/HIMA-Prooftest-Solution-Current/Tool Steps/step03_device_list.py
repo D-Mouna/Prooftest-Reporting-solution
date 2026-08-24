@@ -310,7 +310,9 @@ def apply_merged_device_list(
     folder_pairs: List[Tuple[str, str]] = []
     present_keys: List[str] = []
     for device in merge.devices:
-        if keep_opc_only and not device.present_on_opc:
+        # Never hide SILworX project identities; keep_opc_only only drops non-project orphans.
+        has_project = bool(str(getattr(device, "project", "") or "").strip())
+        if keep_opc_only and not device.present_on_opc and not has_project:
             continue
         # Unknown type devices stay listed (no ProofTest_* until type known — poll skips).
         key = device.device_id.key()

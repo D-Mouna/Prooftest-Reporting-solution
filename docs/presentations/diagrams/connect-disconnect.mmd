@@ -1,0 +1,28 @@
+flowchart LR
+  subgraph connect["CONNECT"]
+    C1["Links THIS reporting tool to SILworX"]
+    C2["Reads which devices exist and their types"]
+    C3["Does not take over SILworX"]
+  end
+
+  subgraph disconnect["DISCONNECT"]
+    D1["Unlinks THIS tool only"]
+    D2["Does NOT close the engineer project"]
+    D3["Does NOT quit SILworX"]
+    D4["Watching continues via OPC"]
+  end
+
+  TOOL["Reporting tool"]
+  SIL["SILworX"]
+  OPC["OPC live data"]
+
+  TOOL -->|"Connect"| SIL
+  TOOL -.-x|"Disconnect<br/>(unlink only)"| SIL
+  OPC -->|"always"| TOOL
+
+  classDef ok fill:#E6F4EA,stroke:#2F6F4E
+  classDef warn fill:#FFF4E5,stroke:#B45309
+  classDef tool fill:#E8EEF4,stroke:#003366,stroke-width:2px
+  class connect ok
+  class disconnect warn
+  class TOOL tool

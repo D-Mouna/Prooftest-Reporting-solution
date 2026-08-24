@@ -37,6 +37,8 @@ class CatalogService:
         self.archive = archive
         self.types = ResultTypeCatalog()
         self.devices: list[Device] = []
+        self.last_api_identity_count = 0
+        self.last_api_identity_tags: list[str] = []
 
     def load_result_types(self, folder: Optional[Path] = None) -> ResultTypeCatalog:
         path = folder or self.types_folder
@@ -152,6 +154,11 @@ class CatalogService:
                 )
                 # Keep prior in-memory devices when API fails mid-flight; OPC-only still runs.
                 silworx_rows = []
+            # True SILworX project device count (before keep_opc_only drops API-only GVs).
+            self.last_api_identity_count = len(silworx_rows)
+            self.last_api_identity_tags = sorted(
+                {str(r.device_tag) for r in silworx_rows if getattr(r, "device_tag", None)}
+            )
 
             # A1: SILworX identities present → bind constructed paths (type from API).
             # A2: otherwise / extra OPC folders → shaped OPC-only (shape gate, no invent).
@@ -186,6 +193,12 @@ class CatalogService:
             existing = {d.device_id.key(): d for d in self.devices}
             try:
                 for row in self.store.list_devices("all") or []:
+                    try:
+                        device = device_from_row(row)
+                        existing.setdefault(device.device_id.key(), device)
+                    except Exception:
+                        continue
+                for row in getattr(self.store, "list_inactive_devices", lambda: [])() or []:
                     try:
                         device = device_from_row(row)
                         existing.setdefault(device.device_id.key(), device)
@@ -226,8 +239,13 @@ class CatalogService:
                     keep_opc_only = False
 
             persisted: list[Device] = []
+            skipped_non_project = 0
             for device in result.devices:
-                if keep_opc_only and not device.present_on_opc:
+                # keep_opc_only drops OPC-orphan noise only — never hide SILworX
+                # project identities (API GVs without an OPC path must still list).
+                has_project = bool(str(getattr(device, "project", "") or "").strip())
+                if keep_opc_only and not device.present_on_opc and not has_project:
+                    skipped_non_project += 1
                     continue
                 try:
                     self.store.upsert_device(device)
@@ -240,6 +258,14 @@ class CatalogService:
                         device_tag=device.device_tag,
                     )
                     continue
+            if skipped_non_project:
+                log.info(
+                    "keep_opc_only: skipped %d non-project device(s) with no OPC path "
+                    "(project identities=%d; listing=%d)",
+                    skipped_non_project,
+                    getattr(self, "last_api_identity_count", 0),
+                    len(persisted),
+                )
             # Never wipe the station list on a transient empty discovery (API/plugin down).
             if not persisted and self.devices:
                 self.alarms.raise_alarm(
@@ -369,12 +395,19 @@ class CatalogService:
             host.db.set_service_state("opc_server_list", ";".join(host._opc_servers))
             host.db.set_service_state("active_devices", str(len(host.db.list_active_devices())))
             host.db.set_service_state("opc_devices", str(host.db.count_opc_devices()))
+            api_identities = int(getattr(self, "last_api_identity_count", 0) or 0)
+            if api_identities > 0:
+                # Authoritative SILworX project size from this refresh's list_identities.
+                host.db.set_service_state("silworx_project_devices", str(api_identities))
+            # Do not clear on a failed/empty API scan — keep last good project count
+            # until a successful discovery overwrites it (or Connect/Disconnect clears).
             result = {
                 "opc_servers": len(host._opc_servers),
                 "active_devices": len(host.db.list_active_devices()),
                 "opc_devices": host.db.count_opc_devices(),
                 "structures_loaded": len(host.structures),
                 "device_list_source": device_source,
+                "silworx_project_devices": api_identities,
             }
             host._cached_device_counts = (
                 int(result["active_devices"]),

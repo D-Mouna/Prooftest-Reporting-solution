@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" modified="2026-08-20T00:00:00.000Z" agent="HIMA-presentation-pack" version="22.0.0">
+  <diagram id="d1" name="End-to-end flow">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+<mxCell id="s0" value="1 Tool running" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EEF4;strokeColor=#003366" vertex="1" parent="1"><mxGeometry x="120" y="80" width="520" height="50" as="geometry"/></mxCell>
+<mxCell id="s1" value="2 Optional Connect to SILworX" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EEF4;strokeColor=#003366" vertex="1" parent="1"><mxGeometry x="120" y="150" width="520" height="50" as="geometry"/></mxCell>
+<mxCell id="s2" value="3 Or find devices from OPC" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EEF4;strokeColor=#003366" vertex="1" parent="1"><mxGeometry x="120" y="220" width="520" height="50" as="geometry"/></mxCell>
+<mxCell id="s3" value="4 Watch Running" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EEF4;strokeColor=#003366" vertex="1" parent="1"><mxGeometry x="120" y="290" width="520" height="50" as="geometry"/></mxCell>
+<mxCell id="s4" value="5 Running ON" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EEF4;strokeColor=#003366" vertex="1" parent="1"><mxGeometry x="120" y="360" width="520" height="50" as="geometry"/></mxCell>
+<mxCell id="s5" value="6 Running OFF → snapshot" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EEF4;strokeColor=#003366" vertex="1" parent="1"><mxGeometry x="120" y="430" width="520" height="50" as="geometry"/></mxCell>
+<mxCell id="s6" value="7 Save database" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EEF4;strokeColor=#003366" vertex="1" parent="1"><mxGeometry x="120" y="500" width="520" height="50" as="geometry"/></mxCell>
+<mxCell id="s7" value="8 HTML + PDF" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EEF4;strokeColor=#003366" vertex="1" parent="1"><mxGeometry x="120" y="570" width="520" height="50" as="geometry"/></mxCell>
+<mxCell id="s8" value="9 Open on local screen" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EEF4;strokeColor=#003366" vertex="1" parent="1"><mxGeometry x="120" y="640" width="520" height="50" as="geometry"/></mxCell>
+<mxCell id="fe0" style="endArrow=block;html=1;strokeColor=#4A5568" edge="1" parent="1" source="s0" target="s1"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="fe1" style="endArrow=block;html=1;strokeColor=#4A5568" edge="1" parent="1" source="s1" target="s2"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="fe2" style="endArrow=block;html=1;strokeColor=#4A5568" edge="1" parent="1" source="s2" target="s3"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="fe3" style="endArrow=block;html=1;strokeColor=#4A5568" edge="1" parent="1" source="s3" target="s4"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="fe4" style="endArrow=block;html=1;strokeColor=#4A5568" edge="1" parent="1" source="s4" target="s5"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="fe5" style="endArrow=block;html=1;strokeColor=#4A5568" edge="1" parent="1" source="s5" target="s6"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="fe6" style="endArrow=block;html=1;strokeColor=#4A5568" edge="1" parent="1" source="s6" target="s7"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="fe7" style="endArrow=block;html=1;strokeColor=#4A5568" edge="1" parent="1" source="s7" target="s8"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

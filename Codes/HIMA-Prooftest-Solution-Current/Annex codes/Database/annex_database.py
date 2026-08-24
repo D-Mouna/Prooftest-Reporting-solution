@@ -1045,6 +1045,35 @@ class Database:
                 for row in cur.fetchall()
             ]
 
+    def list_inactive_devices(self) -> List[Dict[str, Any]]:
+        """Inactive catalog rows (e.g. API-only GVs dropped on OPC-only refresh)."""
+        with self.cursor() as cur:
+            cur.execute(
+                "SELECT DeviceId, Device_TAG, Results_Type, Configuration, Resource, OPC_Server, OPC_ItemPrefix, "
+                "LastRunning, TestInProgress, PresentOnOpc, SilworxProject "
+                "FROM DeviceProoftestResultList WHERE IsActive=0 "
+                "ORDER BY Device_TAG, SilworxProject, OPC_Server"
+            )
+            return [
+                self._with_device_source(
+                    {
+                        "device_id": row[0] or "",
+                        "device_tag": row[1],
+                        "results_type": row[2],
+                        "configuration": row[3],
+                        "resource": row[4],
+                        "opc_server": row[5],
+                        "opc_item_prefix": row[6],
+                        "last_running": bool(row[7]) if row[7] is not None else None,
+                        "test_in_progress": bool(row[8]) if row[8] is not None else False,
+                        "present_on_opc": bool(row[9]) if row[9] is not None else False,
+                        "silworx_project": row[10] or "",
+                        "project": row[10] or "",
+                    }
+                )
+                for row in cur.fetchall()
+            ]
+
     def list_running_tests(self) -> List[Dict[str, Any]]:
         with self.cursor() as cur:
             cur.execute(

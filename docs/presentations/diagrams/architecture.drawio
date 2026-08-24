@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" modified="2026-08-20T00:00:00.000Z" agent="HIMA-presentation-pack" version="22.0.0">
+  <diagram id="d1" name="Architecture">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+<mxCell id="sil" value="SILworX&#xa;names &amp; types" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF4E5;strokeColor=#B45309;fontStyle=1" vertex="1" parent="1"><mxGeometry x="80" y="120" width="220" height="100" as="geometry"/></mxCell>
+<mxCell id="opc" value="OPC live data&#xa;values + Running" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E6F4EA;strokeColor=#2F6F4E;fontStyle=1" vertex="1" parent="1"><mxGeometry x="80" y="280" width="220" height="100" as="geometry"/></mxCell>
+<mxCell id="tool" value="Reporting tool&#xa;(hub)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EEF4;strokeColor=#003366;strokeWidth=3;fontStyle=1" vertex="1" parent="1"><mxGeometry x="420" y="180" width="260" height="140" as="geometry"/></mxCell>
+<mxCell id="db" value="Database" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3F4F6;strokeColor=#4A5568" vertex="1" parent="1"><mxGeometry x="800" y="80" width="180" height="80" as="geometry"/></mxCell>
+<mxCell id="rep" value="Reports HTML/PDF" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3F4F6;strokeColor=#4A5568" vertex="1" parent="1"><mxGeometry x="800" y="200" width="180" height="80" as="geometry"/></mxCell>
+<mxCell id="ui" value="Local screen" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3F4F6;strokeColor=#4A5568" vertex="1" parent="1"><mxGeometry x="800" y="320" width="180" height="80" as="geometry"/></mxCell>
+<mxCell id="e1" style="endArrow=block;html=1;strokeColor=#B45309" edge="1" parent="1" source="sil" target="tool"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e2" style="endArrow=block;html=1;strokeColor=#2F6F4E" edge="1" parent="1" source="opc" target="tool"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e3" style="endArrow=block;html=1;strokeColor=#4A5568" edge="1" parent="1" source="tool" target="db"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e4" style="endArrow=block;html=1;strokeColor=#4A5568" edge="1" parent="1" source="tool" target="rep"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e5" style="endArrow=block;html=1;strokeColor=#4A5568" edge="1" parent="1" source="tool" target="ui"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

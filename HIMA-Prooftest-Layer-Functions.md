@@ -3,6 +3,7 @@
 | Field | Value |
 |-------|--------|
 | **Purpose** | Explain every function in Presentation, Application, Domain, and Adapters (ports) |
+| **Function catalog (all classes/methods)** | [HIMA-Prooftest-Function-Catalog.md](./HIMA-Prooftest-Function-Catalog.md) — **per class**: each method has **Does · Needs · Calls · Returns**. Regenerate: `Dev tools/generate_function_catalog.py` |
 | **Related** | Layered architecture (not MVC for the whole engine). Web GUI is MVC; engine is use cases + domain + ports |
 | **Identity** | Composite **DeviceId** = Project + Configuration + Resource + `Device_TAG` (e.g. same TAG in two projects = two rows). |
 

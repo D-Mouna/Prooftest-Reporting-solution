@@ -66,6 +66,7 @@ class ProoftestService:
         self._health_cache_ttl_sec: float = 2.0
         self._health_lock = threading.Lock()
         self.app = None
+        self._schema_sync_done = False
         self._build_application()
 
     def _build_application(self) -> None:
@@ -242,19 +243,26 @@ class ProoftestService:
             log.warning("Report template ensure failed: %s", exc)
         # G-05 / Step 1.3: create DB under station Database folder and all
         # ProofTest_* tables from Results Structure CSVs (baseline nine + any new types).
-        try:
-            _stage("sync_schema_case2")
-            self.db.sync_schema_case2(self.config.sql_templates, self.structures)
-            _stage("sync_schema_case2 done")
-        except Exception as exc:
-            log.exception("Initial SQL schema sync failed: %s", exc)
-            self.alarms.raise_alarm(
-                "S2",
-                "Cannot create HIMA Automated Prooftest database tables",
-                cause=str(exc),
-                severity="Error",
-                show_popup=True,
-            )
+        #
+        # Run this once per process: repeating it on every UI Stop/Start can hang on some
+        # stations while SQL/ODBC resources are still unwinding from the previous engine run.
+        if not self._schema_sync_done:
+            try:
+                _stage("sync_schema_case2")
+                self.db.sync_schema_case2(self.config.sql_templates, self.structures)
+                self._schema_sync_done = True
+                _stage("sync_schema_case2 done")
+            except Exception as exc:
+                log.exception("Initial SQL schema sync failed: %s", exc)
+                self.alarms.raise_alarm(
+                    "S2",
+                    "Cannot create HIMA Automated Prooftest database tables",
+                    cause=str(exc),
+                    severity="Error",
+                    show_popup=True,
+                )
+        else:
+            _stage("sync_schema_case2 skipped (already done in this process)")
         if self._start_aborted(token):
             return False
         if self.monitor is not None:
@@ -321,6 +329,9 @@ class ProoftestService:
             self.db.set_service_state("started_at", time.strftime("%Y-%m-%d %H:%M:%S"))
             self.db.set_service_state("engine", "running")
             self.db.set_service_state("stop_reason", "")
+            from prooftest.annex_list_archive import set_keep_opc_only
+
+            set_keep_opc_only(self.db, False)
         except Exception:
             pass
         _stage("loops up — scheduling initial device-list refresh")
@@ -411,6 +422,7 @@ class ProoftestService:
             self.db.set_service_state("silworx_mode", "opc_after_uninstall")
             self.db.set_service_state("device_list_source", "opc_fallback")
             self.db.set_service_state("silworx_api_connected", "0")
+            self.db.set_service_state("silworx_project_devices", "")
             self.db.set_service_state("silworx_cleanup_killed", str(killed))
             self.db.set_service_state(
                 "silworx_released_at",
@@ -516,10 +528,40 @@ class ProoftestService:
             self._stopped = True
             self._stop_in_progress = True
             self._stop.set()
+            self._arm_stop_watchdog()
         log.info("Engine stop requested (%s) — in-flight Start invalidated", reason or "no reason")
+
+    def _arm_stop_watchdog(self) -> None:
+        """If graceful Stop hangs, clear the UI 'Stopping' flag so Start stays usable."""
+        from prooftest.annex_stop_service import STOP_WATCHDOG_SEC, clear_stop_in_progress
+
+        token = self._start_token
+
+        def _fire() -> None:
+            with self._engine_lock:
+                if token != self._start_token or not self._stop_in_progress:
+                    return
+            log.warning(
+                "Engine stop watchdog: still Stopping after %.0fs — clearing stuck flag",
+                STOP_WATCHDOG_SEC,
+            )
+            clear_stop_in_progress(self, reason="stop_watchdog")
+
+        try:
+            old = getattr(self, "_stop_watchdog", None)
+            if old is not None:
+                old.cancel()
+        except Exception:
+            pass
+        timer = threading.Timer(STOP_WATCHDOG_SEC, _fire)
+        timer.daemon = True
+        self._stop_watchdog = timer
+        timer.start()
 
     def stop(self, reason: str = "") -> None:
         """Stop OPC/API/plugin/workers; keep the web host process alive unless exit was requested."""
+        from prooftest.annex_stop_service import clear_stop_in_progress, perform_graceful_shutdown
+
         with self._engine_lock:
             already_stopped = self._stopped and not self._starting and self._stop.is_set()
             self._start_token += 1
@@ -528,11 +570,11 @@ class ProoftestService:
             self._stopped = True
             self._stop_in_progress = True
             self._stop.set()
+            self._arm_stop_watchdog()
         if already_stopped and not any(t.is_alive() for t in self._threads):
             log.info("Prooftest engine already stopped (%s)", reason or "no reason")
+            clear_stop_in_progress(self, reason="already_stopped")
             return
-        from prooftest.annex_stop_service import perform_graceful_shutdown
-
         perform_graceful_shutdown(self, reason)
 
     def refresh(self, manual: bool = False) -> Dict[str, object]:
@@ -632,6 +674,15 @@ class ProoftestService:
         try:
             self.db.set_service_state("silworx_api_connected", "0")
             self.db.set_service_state("device_list_source", "opc_fallback")
+            self.db.set_service_state("silworx_project_devices", "")
+            self.db.set_service_state("silworx_plugin_monitor_state", "")
+            self.db.set_service_state("silworx_attached_projects", "")
+        except Exception:
+            pass
+        try:
+            self._health_cache = {}
+            self._health_cache_at = 0.0
+            self._cached_service_state = {}
         except Exception:
             pass
         try:
@@ -688,6 +739,109 @@ class ProoftestService:
             return self.db.count_listed_devices(), self.db.count_opc_devices()
         except Exception:
             return 0, 0
+
+    def _device_counts_for_project(self, project_name: str) -> Tuple[int, int]:
+        """Active / OPC-present devices belonging to one SILworX project name."""
+        project = str(project_name or "").strip()
+        if not project:
+            return 0, 0
+        try:
+            listed = 0
+            on_opc = 0
+            for row in self.db.list_active_devices() or []:
+                proj = str((row or {}).get("project") or (row or {}).get("silworx_project") or "").strip()
+                if proj != project:
+                    continue
+                listed += 1
+                if (row or {}).get("present_on_opc"):
+                    on_opc += 1
+            return listed, on_opc
+        except Exception:
+            return 0, 0
+
+    def _api_project_device_count(self) -> Optional[int]:
+        """Last RefreshCatalog SILworX API identity count (true project size)."""
+        try:
+            raw = str((self.db.get_service_state() or {}).get("silworx_project_devices") or "").strip()
+            if raw.isdigit():
+                return int(raw)
+        except Exception:
+            pass
+        return None
+
+    def _resolve_silworx_project_name(
+        self, payload: Dict[str, object], project_name: str = ""
+    ) -> str:
+        project = str(project_name or "").strip()
+        if project:
+            return project
+        api = payload.get("api_session") if isinstance(payload.get("api_session"), dict) else {}
+        sil = payload.get("silworx") if isinstance(payload.get("silworx"), dict) else {}
+        project = str(
+            (api or {}).get("project_name")
+            or (sil or {}).get("silworx_project_name")
+            or (sil or {}).get("project_name")
+            or ""
+        ).strip()
+        if project:
+            return project
+        st = payload.get("service_state") if isinstance(payload.get("service_state"), dict) else {}
+        if not st:
+            try:
+                st = self.db.get_service_state() or {}
+            except Exception:
+                st = {}
+        project = str(st.get("silworx_project_name") or st.get("project_name") or "").strip()
+        if project:
+            return project
+        for raw in (
+            str(st.get("silworx_attached_projects") or ""),
+            str(st.get("silworx_open_projects") or ""),
+        ):
+            for part in raw.replace(",", ";").split(";"):
+                token = part.strip()
+                if not token:
+                    continue
+                if ":" in token:
+                    return token.split(":", 1)[1].strip()
+                return token
+        open_projects = payload.get("open_projects")
+        if isinstance(open_projects, list) and open_projects:
+            first = open_projects[0] if isinstance(open_projects[0], dict) else {}
+            return str(
+                first.get("project_name") or first.get("project_file") or ""
+            ).strip()
+        return ""
+
+    def _attach_project_device_counts(
+        self, payload: Dict[str, object], project_name: str = ""
+    ) -> Dict[str, object]:
+        """Expose SILworX project device counts (API size vs OPC-listed subset).
+
+        ``attached_project_devices`` uses the last API identity count when known
+        (``silworx_project_devices``), even if the tool is not currently attached.
+        DB rows can be lower when keep_opc_only drops API-only GVs, or higher when
+        foreign OPC-only devices remain listed.
+        """
+        project = self._resolve_silworx_project_name(payload, project_name)
+        if not project:
+            payload["attached_project_name"] = ""
+            payload["attached_project_devices"] = None
+            payload["attached_project_opc_devices"] = None
+            payload["silworx_project_devices"] = self._api_project_device_count()
+            return payload
+        _db_listed, on_opc = self._device_counts_for_project(project)
+        listed: Optional[int] = self._api_project_device_count()
+        if listed is None or listed <= 0:
+            if self._silworx_badge() == "running":
+                listed = _db_listed
+            else:
+                listed = None
+        payload["attached_project_name"] = project
+        payload["attached_project_devices"] = listed
+        payload["attached_project_opc_devices"] = on_opc if on_opc or listed is not None else None
+        payload["silworx_project_devices"] = self._api_project_device_count()
+        return payload
 
     def _opc_device_counts_by_server(self) -> Dict[str, int]:
         """Active catalog devices grouped by OPC ProgID (for health UI)."""
@@ -786,6 +940,12 @@ class ProoftestService:
             payload["opc_count"] = len(self._opc_servers)
         payload["device_count"] = int(payload.get("active_devices") or 0)
         payload["silworx_status"] = self._silworx_badge() if engine != "stopped" else "not connected"
+        try:
+            self._attach_project_device_counts(payload)
+        except Exception:
+            payload.setdefault("attached_project_name", "")
+            payload.setdefault("attached_project_devices", None)
+            payload.setdefault("attached_project_opc_devices", None)
         payload["silworx_integration"] = (
             "released" if self.is_silworx_integration_released() else "integrated"
         )
@@ -799,6 +959,46 @@ class ProoftestService:
         return payload
 
     def health(self) -> Dict[str, object]:
+        # After Stop, never block on OPC/DB — the web UI must still show Stopped.
+        if self._stopped and not self._starting:
+            all_count, opc_count = self._cached_device_counts
+            service_state = dict(self._cached_service_state) or {"engine": "stopped"}
+            service_state.setdefault("engine", "stopped")
+            db_label = "sqlite" if getattr(self.db, "using_sqlite", False) else "sqlserver"
+            payload: Dict[str, object] = {
+                "deployment_case": self.config.deployment_case,
+                "device_list_source": service_state.get("device_list_source", ""),
+                "database": db_label,
+                "opc_servers": [],
+                "active_devices": all_count,
+                "opc_devices": opc_count,
+                "queue_depth": 0,
+                "silworx": {},
+                "api_session": {"project_name": ""},
+                "plugin_session": {"name": "", "registered": False},
+                "silworx_api_instances": [],
+                "service_state": service_state,
+                "stopping": bool(getattr(self, "_stop_in_progress", False)),
+                "starting": False,
+                "engine_running": False,
+                "web_host_alive": True,
+                "web_auth_required": bool(self.config.web_auth_enabled),
+                "engine": "stopped",
+                "opc_count": 0,
+                "device_count": int(all_count or 0),
+                "silworx_status": "not connected",
+                "attached_project_name": "",
+                "attached_project_devices": None,
+                "attached_project_opc_devices": None,
+                "silworx_integration": (
+                    "released" if self.is_silworx_integration_released() else "integrated"
+                ),
+                "auth_bind_warning": bool(getattr(self.config, "auth_bind_warning", False)),
+                "web_host": str(self.config.web_host),
+                "last_error": None,
+            }
+            return payload
+
         now = time.monotonic()
         if self._health_cache and now - self._health_cache_at <= self._health_cache_ttl_sec:
             return dict(self._health_cache)
@@ -887,12 +1087,17 @@ class ProoftestService:
                     "project_name": s.project_name,
                     "project_file": s.project_file,
                     "src_path": str(s.src_path),
+                    "silworx_version": s.silworx_version,
                 }
                 for s in (self._case1_sync.open_sessions or [])
             ]
             device_list_source = service_state.get("device_list_source", "")
             api_project = self._case1_sync.api_connected_project_name(device_list_source)
             plugin_name = self._case1_sync.registered_plugin_session_name()
+            try:
+                plugin_sessions = self._case1_sync.plugin_session_states()
+            except Exception:
+                plugin_sessions = []
             api_instances = [
                 {"api_port": inst.api_port, "plugin_port": inst.plugin_port, "label": inst.label}
                 for inst in self._case1_sync._available_instances
@@ -933,6 +1138,7 @@ class ProoftestService:
                 "attached_projects": attached_map,
                 "api_session": {"project_name": api_project},
                 "plugin_session": {"name": plugin_name, "registered": bool(plugin_name)},
+                "plugin_sessions": plugin_sessions,
                 "silworx_api_instances": api_instances,
                 "service_state": service_state,
                 "stopping": False,

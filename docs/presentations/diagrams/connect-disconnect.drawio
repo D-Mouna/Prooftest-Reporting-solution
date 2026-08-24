@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" modified="2026-08-20T00:00:00.000Z" agent="HIMA-presentation-pack" version="22.0.0">
+  <diagram id="d1" name="Connect Disconnect">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+<mxCell id="c" value="CONNECT&#xa;Link this tool to SILworX&#xa;Read names/types&#xa;Do not take over SILworX" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E6F4EA;strokeColor=#2F6F4E;align=left;spacingLeft=10" vertex="1" parent="1"><mxGeometry x="60" y="120" width="360" height="200" as="geometry"/></mxCell>
+<mxCell id="d" value="DISCONNECT&#xa;Unlink this tool only&#xa;Do NOT close project&#xa;Do NOT quit SILworX&#xa;Watching continues via OPC" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF4E5;strokeColor=#B45309;align=left;spacingLeft=10" vertex="1" parent="1"><mxGeometry x="480" y="120" width="360" height="200" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

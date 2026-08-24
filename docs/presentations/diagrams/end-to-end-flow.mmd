@@ -1,0 +1,26 @@
+flowchart TD
+  S1["1. Tool is running on the station PC"]
+  S2["2. Optional: Connect — tool attaches to SILworX<br/>and learns device names and types"]
+  S3["3. If not connected: tool still finds<br/>proof-test devices from the live data link (OPC)"]
+  S4["4. Tool watches each device Running signal"]
+  S5["5. Running turns ON → test in progress"]
+  S6["6. Running turns OFF → snapshot of results from OPC"]
+  S7["7. Results saved in the database"]
+  S8["8. HTML + PDF report created"]
+  S9["9. Operator opens the report on the local screen"]
+
+  S1 --> S2
+  S2 --> S4
+  S1 --> S3
+  S3 --> S4
+  S4 --> S5 --> S6 --> S7 --> S8 --> S9
+
+  DISC["Branch: Disconnect tool from SILworX"]
+  KEEP["Engine keeps watching via OPC<br/>SILworX project stays open"]
+  S2 -.-> DISC --> KEEP
+  KEEP -.-> S4
+
+  classDef step fill:#E8EEF4,stroke:#003366,color:#1a1a1a
+  classDef branch fill:#FFF4E5,stroke:#B45309,color:#1a1a1a
+  class S1,S2,S3,S4,S5,S6,S7,S8,S9 step
+  class DISC,KEEP branch

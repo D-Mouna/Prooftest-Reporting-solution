@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 if TYPE_CHECKING:
@@ -289,6 +289,31 @@ class CatalogController:
             except Exception as exc:
                 name = type(exc).__name__
                 if name == "ListArchiveError":
+                    raise HTTPException(status_code=409, detail=str(exc)) from exc
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+        @app.post("/api/archives/export")
+        def export_archive(request: Request):
+            if not _is_local_client(request):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Archive export is allowed from localhost only",
+                )
+            try:
+                manifest, zip_bytes = application(service).export_archive()
+                filename = str(manifest.get("export_name") or "list-archive.zip")
+                return Response(
+                    content=zip_bytes,
+                    media_type="application/zip",
+                    headers={
+                        "Content-Disposition": f'attachment; filename="{filename}"',
+                        "X-Archive-Path": str(manifest.get("path") or ""),
+                        "X-Device-Count": str(manifest.get("device_count") or 0),
+                        "X-Report-Count": str(manifest.get("report_count") or 0),
+                    },
+                )
+            except Exception as exc:
+                if type(exc).__name__ == "ListArchiveError":
                     raise HTTPException(status_code=409, detail=str(exc)) from exc
                 raise HTTPException(status_code=500, detail=str(exc)) from exc
 

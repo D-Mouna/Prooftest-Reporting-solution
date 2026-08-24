@@ -159,6 +159,11 @@ class QueryService:
             raise RuntimeError("Archive port not configured")
         return self.archives.create_archive()
 
+    def export_archive(self) -> tuple[dict, bytes]:
+        if self.archives is None:
+            raise RuntimeError("Archive port not configured")
+        return self.archives.export_archive()
+
     def restore_archive(self, archive_id: str) -> dict:
         if self.archives is None:
             raise RuntimeError("Archive port not configured")

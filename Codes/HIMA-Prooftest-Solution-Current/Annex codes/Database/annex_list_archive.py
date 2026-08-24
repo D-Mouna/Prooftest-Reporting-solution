@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import io
 import json
 import re
 import shutil
@@ -170,6 +171,26 @@ def create_list_archive(db: Any, config: AppConfig) -> Dict[str, Any]:
         json.dumps(manifest, indent=2), encoding="utf-8"
     )
     return manifest
+
+
+def zip_archive_folder(folder: Path) -> bytes:
+    """Pack an on-disk list archive folder into a restore-compatible zip."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(folder.rglob("*")):
+            if not path.is_file():
+                continue
+            archive.write(path, path.relative_to(folder).as_posix())
+    return buf.getvalue()
+
+
+def export_list_archive(db: Any, config: AppConfig) -> tuple[Dict[str, Any], bytes]:
+    """Create a list archive and return manifest plus zip bytes for export."""
+    manifest = create_list_archive(db, config)
+    folder = Path(manifest["path"])
+    zip_bytes = zip_archive_folder(folder)
+    manifest["export_name"] = f"{manifest['archive_id']}.zip"
+    return manifest, zip_bytes
 
 
 def list_list_archives(config: AppConfig) -> List[Dict[str, Any]]:
